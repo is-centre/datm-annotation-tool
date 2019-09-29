@@ -51,6 +51,49 @@
         </widget>
        </item>
        <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QLabel" name="label_2">
+           <property name="font">
+            <font>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Brush diameter:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="sldBrushDiameter">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="txtBrushDiameter">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
         <layout class="QHBoxLayout" name="horizontalLayout">
          <item>
           <widget class="QLabel" name="label_7">
@@ -79,6 +122,12 @@
          </item>
          <item>
           <widget class="QLineEdit" name="txtImageDir">
+           <property name="font">
+            <font>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
            <property name="readOnly">
             <bool>true</bool>
            </property>
@@ -98,7 +147,14 @@
          <item>
           <layout class="QGridLayout" name="gridLayout">
            <item row="2" column="2" colspan="3">
-            <widget class="QComboBox" name="lstImages"/>
+            <widget class="QComboBox" name="lstImages">
+             <property name="font">
+              <font>
+               <weight>50</weight>
+               <bold>false</bold>
+              </font>
+             </property>
+            </widget>
            </item>
            <item row="3" column="3">
             <widget class="QLabel" name="label">
@@ -156,7 +212,17 @@
             </widget>
            </item>
            <item row="3" column="4">
-            <widget class="QLineEdit" name="txtImageHasDefectMask"/>
+            <widget class="QLineEdit" name="txtImageHasDefectMask">
+             <property name="font">
+              <font>
+               <weight>50</weight>
+               <bold>false</bold>
+              </font>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
            </item>
           </layout>
          </item>
@@ -172,9 +238,9 @@
           </widget>
          </item>
          <item>
-          <widget class="QPushButton" name="btnReload">
+          <widget class="QPushButton" name="btnClear">
            <property name="text">
-            <string>Reload image (lose progress!)</string>
+            <string>Clear ALL annotations</string>
            </property>
           </widget>
          </item>

@@ -11,6 +11,7 @@ from pandas import Series, DataFrame
 import math
 import scipy.signal
 import shutil
+import cv2
 
 matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
@@ -32,6 +33,11 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 PUBLISHER = "AlphaControlLab"
 VERSION = "1.0"
 
+# Some configs
+BRUSH_DIAMETER_MIN = 10
+BRUSH_DIAMETER_MAX = 400
+BRUSH_DIAMETER_MASK = 2000
+BRUSH_DIAMETER_DEFAULT = 100
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
@@ -48,6 +54,24 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     canvas_view = None
     toolbar_view = None
     axes_view = None
+
+    # Drawing mode
+    annotation_mode = 0 # 0 for marking defects, 1 for updating mask. Brush will change accordingly
+
+    # We should always know where the cursor is
+    curx = 0
+    cury = 0
+
+    # Brush
+    brush = None
+    brush_diameter = BRUSH_DIAMETER_DEFAULT
+
+    # Stored marks
+    defect_marks = None
+    mask_marks = None
+
+    # Stored background
+    canvas_bg = None
 
     # Internal vars
     initializing = False
@@ -68,6 +92,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
 
+        # Button assignment
+        self.btnClear.clicked.connect(self.clear_all_annotations)
+        self.btnBrowseImageDir.clicked.connect(self.browse_image_directory)
+        self.btnPrev.clicked.connect(self.load_prev_image)
+        self.btnNext.clicked.connect(self.load_next_image)
+
         # Update button states
         self.update_button_states()
 
@@ -84,6 +114,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Add axes
         self.axes_view = self.figure_view.add_subplot(111)
 
+        # Set tight layout
+        self.figure_view.tight_layout()
+
+        # Initialize everything
+        self.initialize_brush_slider()
+        self.initialize_canvas()
+
         # Check whether log should be shown or not
         self.check_show_log()
 
@@ -93,24 +130,197 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Initialization completed
         self.initializing = False
 
+        # Set up blitting
+        # Get background for now only
+        self.canvas_view.mpl_connect("resize_event", self.canvas_grab_bg)
+        self.axes_view.callbacks.connect("xlim_changed", self.canvas_zoom_changed)
+        self.axes_view.callbacks.connect("ylim_changed", self.canvas_zoom_changed)
+
         # Save the configuration (takes into account newly added entries, for example)
         self.config_save()
 
         # Set up the status bar
         self.status_bar_message("ready")
 
+    def initialize_brush_slider(self):
+        self.sldBrushDiameter.setMinimum(BRUSH_DIAMETER_MIN)
+        self.sldBrushDiameter.setMaximum(BRUSH_DIAMETER_MAX)
+        self.sldBrushDiameter.setValue(BRUSH_DIAMETER_DEFAULT)
+        self.sldBrushDiameter.sliderMoved.connect(self.brush_slider_update)
+        self.brush_slider_update()
+
+    def brush_slider_update(self):
+        new_diameter = self.sldBrushDiameter.value()
+        self.txtBrushDiameter.setText(str(new_diameter))
+        self.brush_diameter = new_diameter
+        self.update_brush()
+
+    # Initialize canvas: add all the necessary functionality
+    def initialize_canvas(self):
+        self.canvas_view.mpl_connect('motion_notify_event', self.canvas_mouse_interaction)
+        self.canvas_view.mpl_connect('button_press_event', self.canvas_mouse_interaction)
+
+    # Helper function for disabling zoom after zoom event
+    def canvas_zoom_changed(self, event=None):
+        if self.toolbar_view.mode == "zoom rect":
+            self.toolbar_view.zoom()
+        self.canvas_grab_bg()
+
+    # Get the correct brush diameter depending on the current mode
+    def get_mode_diam(self):
+        if self.annotation_mode == 0:
+            return self.brush_diameter
+        elif self.annotation_mode == 1:
+            return BRUSH_DIAMETER_MASK
+        else:
+            return BRUSH_DIAMETER_DEFAULT
+
+    def update_brush(self):
+        # Get the diameter
+        set_diam = self.get_mode_diam()
+
+        # Create the brush if it doesn't exist
+        if self.brush is None:
+            self.brush = self.axes_view.add_patch(
+                patches.Circle((self.curx, self.cury), int(set_diam/2), fc="None", ec='black', ls="--"))
+
+        # Make sure all parameters of the brush are updated
+        self.brush.set_radius(int(set_diam/2))
+
+    def canvas_mouse_interaction(self, event):
+        print(event)
+
+        # Get cursor location
+        curx = event.xdata
+        cury = event.ydata
+
+        # Stop here if we are outside the image
+        if curx is None or cury is None:
+            return
+
+        # Otherwise update the coordinates
+        self.curx = curx
+        self.cury = cury
+
+        # Update brush
+        self.update_brush()
+
+        # If we are in pan or resize mode, we stop here
+        if self.toolbar_view.mode != "":
+            self.brush.set_visible(False)
+            return
+
+        # Otherwise we proceed with drawing the brush
+        self.brush.set_visible(True)
+
+        # Update brush coordinates
+        self.brush.center = (curx, cury)
+
+        # If mouse 1 is pressed, we need to start storing the on canvas paint events
+        if event.button == 1:
+            # Depends on mode
+            if self.annotation_mode == 0:
+                if self.defect_marks is None:
+                    self.defect_marks = []
+                self.defect_marks.append(
+                    self.axes_view.add_patch(patches.Circle((self.curx, self.cury),
+                                                            int(self.brush_diameter/2), fc=(0,0,1,0.1), ec='None')))
+
+        self.canvas_blit()
+
+    def canvas_grab_bg(self, event=None):
+        # Disable all drawable actors
+        if self.brush is not None:
+            self.brush.set_visible(False)
+        if self.defect_marks is not None:
+            for dm in self.defect_marks:
+                dm.set_visible(False)
+        if self.mask_marks is not None:
+            for mm in self.mask_marks:
+                mm.set_visible(False)
+
+        self.canvas_view.draw()
+        self.canvas_bg = self.canvas_view.copy_from_bbox(self.figure_view.bbox)
+
+        # Re-enable drawable actors
+        if self.defect_marks is not None:
+            for dm in self.defect_marks:
+                dm.set_visible(True)
+        if self.mask_marks is not None:
+            for mm in self.mask_marks:
+                mm.set_visible(True)
+        if self.brush is not None:
+            self.brush.set_visible(True)
+
+        self.canvas_blit()
+
+    def canvas_blit(self):
+        self.canvas_view.restore_region(self.canvas_bg)
+
+        # Draw actors that exist
+        if self.brush is not None:
+            self.axes_view.draw_artist(self.brush)
+        if self.defect_marks is not None:
+            for dm in self.defect_marks:
+                self.axes_view.draw_artist(dm)
+        if self.mask_marks is not None:
+            for mm in self.mask_marks:
+                self.axes_view.draw_artist(mm)
+
+        self.canvas_view.blit(self.figure_view.bbox)
+
+    def clear_all_annotations(self):
+
+        if self.defect_marks is not None:
+            for dm in self.defect_marks:
+                dm.remove()
+        self.defect_marks = None
+
+        if self.mask_marks is not None:
+            for mm in self.mask_marks:
+                mm.remove()
+        self.mask_marks = None
+
+        self.canvas_blit()
+
     # Debug action: temporary function for doing various tests. Contents change often.
-    def debug_action(self):
-        # This will currently load up the temp data into a pandas dataframe and plot 24 hours of some random day
-        df = pd.read_csv(self.TEMP_PATH, sep=';', decimal=',')
-        df.set_index('date', inplace=True)  # Set the correct indexing
-        df.index = pd.to_datetime(df.index)  # Make sure we are actually dealing with datetime format here
-        s = df['residential']  # This creates a time series based on residential power consumption
+    def load_image(self):
 
         if not self.initializing:
-            # Do a plot of residential consumption for some date as an example
-            # E.g., 2017-10-01.
+
             self.axes_view.clear()
+            self.clear_all_annotations()
+
+            # Get the image from the list
+            img_name = self.lstImages.currentText()
+            img_name_no_ext = img_name.split(".")[0]
+            img_path = self.txtImageDir.text() + os.sep + img_name_no_ext
+
+            # Start loading the image
+            self.log("Loading image " + img_name_no_ext)
+
+            # To test we load an image here
+            img = cv2.imread(img_path + ".marked.jpg")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            # Load the mask as well
+            img_m = cv2.imread(img_path + ".cut.mask.png")
+            img_m = cv2.bitwise_not(img_m) # Invert mask
+            img_m[np.where((img_m == [255, 255, 255]).all(axis=2))] = [255, 0, 0] # Masked area is red
+
+            # Blend the two images
+            img_b = cv2.addWeighted(img, 1, img_m, 0.3, 0)
+
+            # Apply to axes
+            self.axes_view.imshow(img_b)
+            self.canvas_view.draw()
+            self.canvas_grab_bg()
+
+    def load_prev_image(self):
+        print("Not implemented")
+
+    def load_next_image(self):
+        print("Not implemented")
 
     # In-GUI console log
     def log(self, line):
@@ -241,7 +451,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     def check_paths(self):
         # Use this to check the paths
-        print("Not implemented")
+        self.txtImageDir.setText(self.fix_path(self.txtImageDir.text()))
 
     def store_paths_to_config(self):
         # Use this to store the paths to config
@@ -263,21 +473,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.app is not None:
             self.app.processEvents()
 
-    def browse_data_file(self):
-        the_file = QtWidgets.QFileDialog.getOpenFileName(self, "Choose the points shapefile")
-        if the_file:
-            # Set the path
-            # SET THE TEXT HERE self.txt.setText(the_file[0])
-            self.check_paths()
-            self.store_paths_to_config()
-            self.log('Will use the camera points from shapefile ' + the_file[0] + ' for pavement extraction.')
-
     # Locate working directory with files
-    def browse_working_directory(self):
+    def browse_image_directory(self):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose working directory")
         if directory:
             # Set the path
-            self.txtWorkingDirectory.setText(directory)
+            self.txtImageDir.setText(directory)
             self.check_paths()
             self.store_paths_to_config()
 
@@ -285,15 +486,25 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.get_image_files()
 
-    # Locate working directory with defect files
-    def browse_output_directory(self):
-        directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose directory to store output files")
-        if directory:
-            # Set the path
-            self.txtOutputDir.setText(directory)
-            self.check_paths()
-            self.store_paths_to_config()
-            self.log('Changed the output directory to ' + directory)
+    def get_image_files(self):
+        directory = self.txtImageDir.text()
+
+        if os.path.isdir(directory):
+
+            # Get the JPG files
+            self.lstImages.clear()
+            allowed_ext = ".marked.jpg"
+            disallowed_ext = ".cut.marked.jpg"
+            file_cnt = 0
+            for file_name in os.listdir(directory):
+                if allowed_ext in file_name and disallowed_ext not in file_name:
+                    file_cnt += 1
+                    self.lstImages.addItem(os.path.splitext(file_name)[0])
+
+            self.log("Found " + str(file_cnt) + " images in the working directory")
+
+            # Also load the first available image
+            self.load_image()
 
     def update_button_states(self):
         # Here, depending on the loaded config etc decide if we are ready to do the prediction
