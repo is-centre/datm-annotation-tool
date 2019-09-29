@@ -42,7 +42,7 @@ BRUSH_DIAMETER_DEFAULT = 100
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Applications states in status bar
-    APP_STATUS_STATES = {"ready": "Ready."}
+    APP_STATUS_STATES = {"ready": "Ready.", "loading": "Loading image..."}
 
     # Config file
     config_path = None  # Path to config file
@@ -54,6 +54,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     canvas_view = None
     toolbar_view = None
     axes_view = None
+
+    img_shape = None
 
     # Drawing mode
     annotation_mode = 0 # 0 for marking defects, 1 for updating mask. Brush will change accordingly
@@ -72,6 +74,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     # Stored background
     canvas_bg = None
+
+    # Image name
+    current_img = None
 
     # Internal vars
     initializing = False
@@ -133,8 +138,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Set up blitting
         # Get background for now only
         self.canvas_view.mpl_connect("resize_event", self.canvas_grab_bg)
-        self.axes_view.callbacks.connect("xlim_changed", self.canvas_zoom_changed)
-        self.axes_view.callbacks.connect("ylim_changed", self.canvas_zoom_changed)
 
         # Save the configuration (takes into account newly added entries, for example)
         self.config_save()
@@ -287,6 +290,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     def load_image(self):
 
         if not self.initializing:
+            self.status_bar_message("loading")
 
             self.axes_view.clear()
             self.clear_all_annotations()
@@ -296,12 +300,16 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             img_name_no_ext = img_name.split(".")[0]
             img_path = self.txtImageDir.text() + os.sep + img_name_no_ext
 
+            self.current_img = img_name_no_ext
+
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
 
             # To test we load an image here
             img = cv2.imread(img_path + ".marked.jpg")
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            self.img_shape = img.shape
 
             # Load the mask as well
             img_m = cv2.imread(img_path + ".cut.mask.png")
@@ -313,14 +321,51 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Apply to axes
             self.axes_view.imshow(img_b)
+
+            # Set up axes callbacks
+            self.axes_view.callbacks.connect("xlim_changed", self.canvas_zoom_changed)
+            self.axes_view.callbacks.connect("ylim_changed", self.canvas_zoom_changed)
+
             self.canvas_view.draw()
             self.canvas_grab_bg()
 
+            self.status_bar_message("ready")
+            self.log("Done loading image")
+
     def load_prev_image(self):
-        print("Not implemented")
+        total_items = self.lstImages.count()
+        if total_items == 0:
+            return
+        cur_index = self.lstImages.currentIndex()
+        if cur_index - 1 < 0:
+            self.log("This is the first image")
+            return
+        self.save_masks()
+        self.lstImages.setCurrentIndex(cur_index-1)
+        self.load_image()
 
     def load_next_image(self):
-        print("Not implemented")
+        total_items = self.lstImages.count()
+        if total_items == 0:
+            return
+        cur_index = self.lstImages.currentIndex()
+        if cur_index+1 == total_items:
+            self.log("This is the last image")
+            return
+        self.save_masks()
+        self.lstImages.setCurrentIndex(cur_index + 1)
+        self.load_image()
+
+    def save_masks(self):
+        save_dir = self.txtImageDir.text()
+        save_path = save_dir + self.current_img + ".defect.mask.png"
+        if self.defect_marks is not None and len(self.defect_marks) > 0:
+            self.log("Saving defect annotation...")
+            new_image = np.zeros(self.img_shape, np.uint8)
+            for circ in self.defect_marks:
+                cv2.circle(new_image, (int(circ.center[0]), int(circ.center[1])), int(circ.radius), (255,255,255),-1)
+            cv2.imwrite(save_path, new_image)
+            self.log("Saved")
 
     # In-GUI console log
     def log(self, line):
