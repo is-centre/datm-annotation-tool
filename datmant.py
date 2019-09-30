@@ -3,7 +3,6 @@ from PyQt5 import QtGui, QtWidgets, QtCore
 import sys
 import traceback
 import os
-#from lib.ae_backend import ae_backend
 import numpy as np
 import matplotlib
 import pandas as pd
@@ -12,6 +11,11 @@ import math
 import scipy.signal
 import shutil
 import cv2
+
+# Specific UI features
+from PyQt5.QtWidgets import QSplashScreen, QMessageBox
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import Qt
 
 matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
@@ -36,13 +40,16 @@ VERSION = "1.0"
 # Some configs
 BRUSH_DIAMETER_MIN = 10
 BRUSH_DIAMETER_MAX = 400
-BRUSH_DIAMETER_MASK = 2000
+BRUSH_DIAMETER_MASK = 1000
 BRUSH_DIAMETER_DEFAULT = 100
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Applications states in status bar
     APP_STATUS_STATES = {"ready": "Ready.", "loading": "Loading image..."}
+
+    # Annotation modes
+    ANNOTATION_MODES_BUTTON_TEXT = {0: "Mode [Marking defects]", 1: "Mode [Marking mask]"}
 
     # Config file
     config_path = None  # Path to config file
@@ -75,8 +82,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Stored background
     canvas_bg = None
 
+    # Stored original mask
+    current_mask = None
+
     # Image name
     current_img = None
+    current_img_as_listed = None
 
     # Internal vars
     initializing = False
@@ -102,6 +113,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.btnBrowseImageDir.clicked.connect(self.browse_image_directory)
         self.btnPrev.clicked.connect(self.load_prev_image)
         self.btnNext.clicked.connect(self.load_next_image)
+        self.btnMode.clicked.connect(self.annotation_mode_switch)
+
+        # Selecting new image from list
+        # NB! We depend on this firing on index change, so we remove manual load_image elsewhere
+        self.lstImages.currentIndexChanged.connect(self.load_image)
 
         # Update button states
         self.update_button_states()
@@ -222,13 +238,19 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # If mouse 1 is pressed, we need to start storing the on canvas paint events
         if event.button == 1:
             # Depends on mode
+            brush_diam = self.get_mode_diam()
             if self.annotation_mode == 0:
                 if self.defect_marks is None:
                     self.defect_marks = []
                 self.defect_marks.append(
                     self.axes_view.add_patch(patches.Circle((self.curx, self.cury),
-                                                            int(self.brush_diameter/2), fc=(0,0,1,0.1), ec='None')))
-
+                                                            int(brush_diam/2), fc=(0,0,1,0.1), ec='None')))
+            elif self.annotation_mode == 1:
+                if self.mask_marks is None:
+                    self.mask_marks = []
+                self.mask_marks.append(
+                    self.axes_view.add_patch(patches.Circle((self.curx, self.cury),
+                                                            int(brush_diam / 2), fc=(1, 0, 0, 0.1), ec='None')))
         self.canvas_blit()
 
     def canvas_grab_bg(self, event=None):
@@ -286,11 +308,38 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         self.canvas_blit()
 
-    # Debug action: temporary function for doing various tests. Contents change often.
+    # Change annotation mode
+    def annotation_mode_switch(self):
+        self.annotation_mode += 1
+        if self.annotation_mode > 1:
+            self.annotation_mode = 0
+        self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
+
+    # Set default annotation mode
+    def annotation_mode_default(self):
+        self.annotation_mode = 0
+        self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
+
+    # Helper for QMessageBox
+    def show_info_box(self, title, text):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(text)
+        msg.setWindowTitle(title)
+        msg.setModal(True)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec()
+
+    # Loads the image
     def load_image(self):
 
         if not self.initializing:
             self.status_bar_message("loading")
+
+            # Also show splash screen for added convenience
+            splash = QSplashScreen(QPixmap("res/loading.png"), Qt.WindowStaysOnTopHint)
+            splash.show()
+            self.app.processEvents()
 
             self.axes_view.clear()
             self.clear_all_annotations()
@@ -301,6 +350,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             img_path = self.txtImageDir.text() + os.sep + img_name_no_ext
 
             self.current_img = img_name_no_ext
+            self.current_img_as_listed = img_name
 
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
@@ -313,6 +363,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Load the mask as well
             img_m = cv2.imread(img_path + ".cut.mask.png")
+
+            # Store the mask for later use
+            self.current_mask = img_m
+
+            # Proceed with display purposes
             img_m = cv2.bitwise_not(img_m) # Invert mask
             img_m[np.where((img_m == [255, 255, 255]).all(axis=2))] = [255, 0, 0] # Masked area is red
 
@@ -329,8 +384,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.canvas_view.draw()
             self.canvas_grab_bg()
 
+            # Set also default annotation mode
+            self.annotation_mode_default()
+
             self.status_bar_message("ready")
             self.log("Done loading image")
+            splash.close()
 
     def load_prev_image(self):
         total_items = self.lstImages.count()
@@ -338,11 +397,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             return
         cur_index = self.lstImages.currentIndex()
         if cur_index - 1 < 0:
-            self.log("This is the first image")
+            self.log("This is the first image. Saving annotation masks.")
+            self.show_info_box("First image",
+                               "This is the first image in the folder. I will now save the current annotation masks.")
+            self.save_masks()
             return
         self.save_masks()
         self.lstImages.setCurrentIndex(cur_index-1)
-        self.load_image()
 
     def load_next_image(self):
         total_items = self.lstImages.count()
@@ -351,21 +412,30 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         cur_index = self.lstImages.currentIndex()
         if cur_index+1 == total_items:
             self.log("This is the last image")
+            self.show_info_box("Last image",
+                               "This is the last image in the folder. I will now save the current annotation masks.")
+            self.save_masks()
             return
         self.save_masks()
         self.lstImages.setCurrentIndex(cur_index + 1)
-        self.load_image()
 
     def save_masks(self):
         save_dir = self.txtImageDir.text()
-        save_path = save_dir + self.current_img + ".defect.mask.png"
+        save_path_defects = save_dir + self.current_img + ".defect.mask.png"
+        save_path_masks = save_dir + self.current_img + ".cut.mask_v2.png"
         if self.defect_marks is not None and len(self.defect_marks) > 0:
-            self.log("Saving defect annotation...")
             new_image = np.zeros(self.img_shape, np.uint8)
             for circ in self.defect_marks:
                 cv2.circle(new_image, (int(circ.center[0]), int(circ.center[1])), int(circ.radius), (255,255,255),-1)
-            cv2.imwrite(save_path, new_image)
-            self.log("Saved")
+            cv2.imwrite(save_path_defects, new_image)
+            self.log("Saved defect annotations for image " + self.current_img)
+        if self.mask_marks is not None and len(self.mask_marks) > 0:
+            new_image = self.current_mask
+            for circ in self.mask_marks:
+                cv2.circle(new_image, (int(circ.center[0]), int(circ.center[1])), int(circ.radius), (0, 0, 0), -1)
+            # Now we have to do bitwise
+            cv2.imwrite(save_path_masks, new_image)
+            self.log("Saved updated mask for image " + self.current_img)
 
     # In-GUI console log
     def log(self, line):
@@ -548,11 +618,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.log("Found " + str(file_cnt) + " images in the working directory")
 
-            # Also load the first available image
-            self.load_image()
-
     def update_button_states(self):
-        # Here, depending on the loaded config etc decide if we are ready to do the prediction
         print("Not implemented")
 
 
