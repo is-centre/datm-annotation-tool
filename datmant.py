@@ -41,7 +41,7 @@ VERSION = "1.0"
 BRUSH_DIAMETER_MIN = 10
 BRUSH_DIAMETER_MAX = 400
 BRUSH_DIAMETER_MASK = 1000
-BRUSH_DIAMETER_DEFAULT = 100
+BRUSH_DIAMETER_DEFAULT = 50
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
@@ -50,11 +50,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     # Annotation modes
     ANNOTATION_MODES_BUTTON_TEXT = {0: "Mode [Marking defects]", 1: "Mode [Marking mask]"}
+    ANNOTATION_MODES_BUTTON_COLORS = {0: "blue", 1: "red"}
 
     # Config file
     config_path = None  # Path to config file
     config_data = None  # The actual configuration
-    CONFIG_NAME = "datmant_config.cfg"  # Name of the config file
+    CONFIG_NAME = "datmant_config.ini"  # Name of the config file
 
     # Embedded pyplot graph
     figure_view = None
@@ -102,11 +103,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.setupUi(self)
 
         # Config file storage: config file stored in user directory
-        self.config_path = self.fix_path(os.path.expanduser("~")) + PUBLISHER + os.sep
+        self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
 
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
+        self.actionLoad_marked_image.triggered.connect(self.load_image)
+        self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
         # Button assignment
         self.btnClear.clicked.connect(self.clear_all_annotations)
@@ -120,10 +123,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.lstImages.currentIndexChanged.connect(self.load_image)
 
         # Update button states
-        self.update_button_states()
-
-        # Load configuration
-        self.config_load()
+        # self.update_button_states()
 
         # Add the FigureCanvas
         self.figure_view = Figure()
@@ -148,15 +148,15 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Log this anyway
         self.log("Application started")
 
+        # Style the mode button properly
+        self.annotation_mode_default()
+
         # Initialization completed
         self.initializing = False
 
         # Set up blitting
         # Get background for now only
         self.canvas_view.mpl_connect("resize_event", self.canvas_grab_bg)
-
-        # Save the configuration (takes into account newly added entries, for example)
-        self.config_save()
 
         # Set up the status bar
         self.status_bar_message("ready")
@@ -207,7 +207,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.brush.set_radius(int(set_diam/2))
 
     def canvas_mouse_interaction(self, event):
-        print(event)
 
         # Get cursor location
         curx = event.xdata
@@ -314,11 +313,15 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.annotation_mode > 1:
             self.annotation_mode = 0
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
+        self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
+                                   + self.ANNOTATION_MODES_BUTTON_COLORS[self.annotation_mode] + "}")
 
     # Set default annotation mode
     def annotation_mode_default(self):
         self.annotation_mode = 0
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
+        self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
+                                   + self.ANNOTATION_MODES_BUTTON_COLORS[self.annotation_mode] + "}")
 
     # Helper for QMessageBox
     def show_info_box(self, title, text):
@@ -356,7 +359,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.log("Loading image " + img_name_no_ext)
 
             # To test we load an image here
-            img = cv2.imread(img_path + ".marked.jpg")
+            img = cv2.imread(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
             self.img_shape = img.shape
@@ -386,6 +389,21 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Set also default annotation mode
             self.annotation_mode_default()
+
+            # Add some useful information
+            at_least_something = False
+            if os.path.isfile(img_path + ".cut.mask_v2.png"):
+                self.txtImageHasDefectMask.setText("YES")
+                at_least_something = True
+            else:
+                self.txtImageHasDefectMask.setText("NO")
+
+            if os.path.isfile(img_path + ".defect.mask.png"):
+                self.txtImageStatus.setText("PROCESSED, defect mask found in directory")
+            elif at_least_something:
+                self.txtImageStatus.setText("SEEN BEFORE, but there is no defect mask")
+            else:
+                self.txtImageStatus.setText("No info")
 
             self.status_bar_message("ready")
             self.log("Done loading image")
@@ -502,6 +520,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             else:
                 self.actionLog.setChecked(False)
 
+            # Get file list, if a URL was saved
+            directory = self.config_data['MenuOptions']['ImageDirectory']
+            if directory != "":
+                self.log('Changed working directory to ' + directory)
+                self.txtImageDir.setText(directory)
+                self.get_image_files()
+
         else:
 
             # Initialize the config file
@@ -521,7 +546,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # The defaults
         config_defaults['MenuOptions'] = \
-            {'ShowLog': '0'}
+            {'ShowLog': '0',
+             'ImageDirectory': ''}
 
         return config_defaults
 
@@ -570,7 +596,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     def store_paths_to_config(self):
         # Use this to store the paths to config
-        print("Not implemented")
+        self.config_data['MenuOptions']['ImageDirectory'] = self.txtImageDir.text()
+        self.config_save()
 
     def store_menu_options_to_config(self):
         if not self.initializing:
@@ -629,6 +656,11 @@ def main():
     dialog = DATMantGUI()
     dialog.app = app  # Store the reference
     dialog.show()
+
+    # Now we have to load the app configuration file
+    dialog.config_load()
+
+    # And proceed with execution
     app.exec_()
 
 
