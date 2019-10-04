@@ -295,12 +295,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     def clear_all_annotations(self):
 
-        if self.defect_marks is not None:
+        if self.defect_marks is not None and len(self.defect_marks)>0:
             for dm in self.defect_marks:
                 dm.remove()
         self.defect_marks = None
 
-        if self.mask_marks is not None:
+        if self.mask_marks is not None and len(self.mask_marks)>0:
             for mm in self.mask_marks:
                 mm.remove()
         self.mask_marks = None
