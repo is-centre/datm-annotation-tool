@@ -7,11 +7,6 @@ from tqdm import tqdm
 import shutil
 import time
 
-import matplotlib
-matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-plt.ion()
-
 # Some file naming conventions
 ORIG_IMG = ".jpg"
 CUT_MASK_V1 = ".cut.mask.png"
@@ -23,8 +18,11 @@ SAVE_IMG = ".img.npy"
 COMB_MASK = ".masks.npy"
 
 # Path to where the images with .defect.mask.png and .cut.mask_v2.png are stored
+# NB! DO NOT, I repeat, DO NOT choose POST_SRC_FOLDER the same as PRE_SRC_FOLDER
+# This is because it is CLEARED of ALL FILES on every run
+# NEVER choose POST_SRC_FOLDER as folder that already contains some data, otherwise you will lose it!
 PRE_SRC_FOLDER = "C:\\Data\\ReachU-3DGIS\\defect-detection-ext-paper\\20190414_083725_LD5"
-POST_SRC_FOLDER = "C:\\Data\\ReachU-3DGIS\\defect-detection-ext-paper\\20190414_083725_LD5_PREPPED_SRC"
+POST_SRC_FOLDER = "C:\\Data\\ReachU-3DGIS\\defect-detection-ext-paper\\20190414_083725_LD5_PREPPED_SRC" # NEW FOLDER!
 
 # Create the new dir as needed
 if os.path.exists(POST_SRC_FOLDER):
