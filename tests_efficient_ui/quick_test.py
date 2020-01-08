@@ -2,12 +2,12 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QImage, QPixmap, QPainterPath
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog
 
-TEST_IMAGE_PATH = "C:\\Data\\ReachU-3DGIS\\defect-detection-ext-paper\\20190414_083725_LD5\\20190414_083725_LD5-050.jpg"
+TEST_IMAGE_PATH = "C:\\Users\\Alex\\Desktop\\SomeTests\\20190414_083725_LD5-050.marked.jpg"
 
 class Window(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        top, left, width, height = 400, 400, 800, 600
+        top, left, width, height = 20, 20, 800, 600
         self.setWindowTitle("MyPainter")
         self.setGeometry(top, left, width, height)
 
@@ -76,8 +76,14 @@ class Window(QtWidgets.QMainWindow):
         print("Resized")
 
     def paintEvent(self, event):
+
+        # Some debugging to see how it works
+        (a,b,c,d) = self.image.rect().getRect()
+        newRect = QtCore.QRect(a+100,b+100,c-100,d-100)
+
         canvasPainter = QtGui.QPainter(self)
-        canvasPainter.drawImage(self.rect(), self.image, self.image.rect())
+        #canvasPainter.drawImage(self.rect(), self.image, self.image.rect()) # original
+        canvasPainter.drawImage(self.rect(), self.image, newRect)
         canvasPainter.setOpacity(0.5)
         canvasPainter.drawImage(self.rect(), self.imageDraw, self.imageDraw.rect())
 
