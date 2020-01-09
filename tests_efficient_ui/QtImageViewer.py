@@ -4,8 +4,8 @@
 
 import os.path
 try:
-    from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR
-    from PyQt5.QtGui import QImage, QPixmap, QPainterPath
+    from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
+    from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor
     from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog
 except ImportError:
     try:
@@ -37,11 +37,11 @@ class QtImageViewer(QGraphicsView):
 
     # Mouse button signals emit image scene (x, y) coordinates.
     # !!! For image (row, column) matrix indexing, row = y and column = x.
-    leftMouseButtonPressed = pyqtSignal(float, float)
+    middleMouseButtonPressed = pyqtSignal(float, float)
     rightMouseButtonPressed = pyqtSignal(float, float)
-    leftMouseButtonReleased = pyqtSignal(float, float)
+    middleMouseButtonReleased = pyqtSignal(float, float)
     rightMouseButtonReleased = pyqtSignal(float, float)
-    leftMouseButtonDoubleClicked = pyqtSignal(float, float)
+    middleMouseButtonDoubleClicked = pyqtSignal(float, float)
     rightMouseButtonDoubleClicked = pyqtSignal(float, float)
 
     def __init__(self):
@@ -53,6 +53,13 @@ class QtImageViewer(QGraphicsView):
 
         # Store a local handle to the scene's current image pixmap.
         self._pixmapHandle = None
+        self._overlayHandle = None
+        self._cursorHandle = None
+
+        # Pixmap that contains the mask and the corresponding painter
+        self.mask_pixmap = None
+
+        self.setMouseTracking(True)
 
         # Image aspect ratio mode.
         # !!! ONLY applies to full image. Aspect ratio is always ignored when zooming.
@@ -79,6 +86,16 @@ class QtImageViewer(QGraphicsView):
         """ Returns whether or not the scene contains an image pixmap.
         """
         return self._pixmapHandle is not None
+
+    # def paintEvent(self, event):
+    #     painter = QPainter(self)
+    #
+    #     if self._pixmapHandle is not None:
+    #         painter.drawPixmap(self.rect(), self._pixmapHandle)
+    #     if self._overlayHandle is not None:
+    #         print("This isn't implemented yet")
+    #     if self._cursorHandle is not None:
+    #         painter.drawEllipse(self.rect(), self._cursorHandle)
 
     def clearImage(self):
         """ Removes the current image pixmap from the scene if it exists.
@@ -118,8 +135,17 @@ class QtImageViewer(QGraphicsView):
             self._pixmapHandle.setPixmap(pixmap)
         else:
             self._pixmapHandle = self.scene.addPixmap(pixmap)
+
         self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
         self.updateViewer()
+
+        # Add the mask layer
+        self.mask_pixmap = QPixmap(pixmap.rect().width(), pixmap.rect().height())
+        self.mask_pixmap.fill(QColor(0,0,0,0))
+        self._overlayHandle = self.scene.addPixmap(self.mask_pixmap)
+
+        # Also add cursor to a layer higher
+        self._cursorHandle = self.scene.addEllipse(0,0,50,50)
 
     def loadImageFromFile(self, fileName=""):
         """ Load an image from file.
@@ -141,7 +167,8 @@ class QtImageViewer(QGraphicsView):
         if not self.hasImage():
             return
         if len(self.zoomStack) and self.sceneRect().contains(self.zoomStack[-1]):
-            self.fitInView(self.zoomStack[-1], Qt.IgnoreAspectRatio)  # Show zoomed rect (ignore aspect ratio).
+            # TODO: Originally Qt.IgnoreAspectRatio - I still have no idea why. Works well with respect aspect ratio
+            self.fitInView(self.zoomStack[-1], self.aspectRatioMode)   # Show zoomed rect
         else:
             self.zoomStack = []  # Clear the zoom stack (in case we got here because of an invalid zoom).
             self.fitInView(self.sceneRect(), self.aspectRatioMode)  # Show entire image (use current aspect ratio mode).
@@ -151,17 +178,68 @@ class QtImageViewer(QGraphicsView):
         """
         self.updateViewer()
 
+    def update_cursor_location(self, event):
+        # There's a problem with this cursor that it's too big.
+        # self.viewport().setCursor(Qt.CrossCursor)
+
+        scenePos = self.mapToScene(event.pos())
+        x, y = scenePos.x(), scenePos.y()
+
+        if self._cursorHandle is not None:
+            self._cursorHandle.setPos(x - 25, y - 25)
+
+    def redraw_cursor(self):
+        if self._cursorHandle is not None:
+            self._cursorHandle.update()
+
+    def wheelEvent(self, event):
+
+        self.redraw_cursor()
+        QGraphicsView.wheelEvent(self, event)
+
+    def mouseMoveEvent(self, event):
+
+        self.update_cursor_location(event)
+
+        # Support for panning
+        if event.buttons() == Qt.MiddleButton:
+            offset = self.__prevMousePos - event.pos()
+            self.__prevMousePos = event.pos()
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + offset.y())
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + offset.x())
+
+        # Filling in the markers
+        if event.buttons() == Qt.LeftButton:
+            self.fillMarker(event)
+
+        QGraphicsView.mouseMoveEvent(self, event)
+
+    # TODO: Make drawing appropriate like in quick_test, circle only on first click, line when moving!
+    def fillMarker(self, event):
+        scenePos = self.mapToScene(event.pos())
+        painter = QPainter(self.mask_pixmap)
+        painter.setCompositionMode(QPainter.RasterOp_SourceOrDestination)
+        painter.setPen(QColor(0,0,0,0))
+        painter.setBrush(QColor(255, 0, 0, 127))
+        painter.drawEllipse(scenePos.x() - 25, scenePos.y() - 25, 50, 50)
+        self._overlayHandle.setPixmap(self.mask_pixmap)
+
     def mousePressEvent(self, event):
         """ Start mouse pan or zoom mode.
         """
         scenePos = self.mapToScene(event.pos())
         if event.button() == Qt.LeftButton:
+            self.fillMarker(event)
+        elif event.button() == Qt.MiddleButton:
             if self.canPan:
-                self.setDragMode(QGraphicsView.ScrollHandDrag)
-            self.leftMouseButtonPressed.emit(scenePos.x(), scenePos.y())
+                self.__prevMousePos = event.pos()
+                self.viewport().setCursor(Qt.ClosedHandCursor)
+            self._cursorHandle.hide()
+            self.middleMouseButtonPressed.emit(scenePos.x(), scenePos.y())
         elif event.button() == Qt.RightButton:
             if self.canZoom:
                 self.setDragMode(QGraphicsView.RubberBandDrag)
+            self._cursorHandle.hide()
             self.rightMouseButtonPressed.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mousePressEvent(self, event)
 
@@ -170,9 +248,10 @@ class QtImageViewer(QGraphicsView):
         """
         QGraphicsView.mouseReleaseEvent(self, event)
         scenePos = self.mapToScene(event.pos())
-        if event.button() == Qt.LeftButton:
-            self.setDragMode(QGraphicsView.NoDrag)
-            self.leftMouseButtonReleased.emit(scenePos.x(), scenePos.y())
+        if event.button() == Qt.MiddleButton:
+            self.viewport().setCursor(Qt.ArrowCursor)
+            self._cursorHandle.show()
+
         elif event.button() == Qt.RightButton:
             if self.canZoom:
                 viewBBox = self.zoomStack[-1] if len(self.zoomStack) else self.sceneRect()
@@ -182,21 +261,21 @@ class QtImageViewer(QGraphicsView):
                     self.zoomStack.append(selectionBBox)
                     self.updateViewer()
             self.setDragMode(QGraphicsView.NoDrag)
+            self._cursorHandle.show()
             self.rightMouseButtonReleased.emit(scenePos.x(), scenePos.y())
 
     def mouseDoubleClickEvent(self, event):
         """ Show entire image.
         """
         scenePos = self.mapToScene(event.pos())
-        if event.button() == Qt.LeftButton:
-            self.leftMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
+        if event.button() == Qt.MiddleButton:
+            self.middleMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
         elif event.button() == Qt.RightButton:
             if self.canZoom:
                 self.zoomStack = []  # Clear zoom stack.
                 self.updateViewer()
             self.rightMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mouseDoubleClickEvent(self, event)
-
 
 if __name__ == '__main__':
     import sys
@@ -209,10 +288,9 @@ if __name__ == '__main__':
             raise ImportError("QtImageViewer: Requires PyQt5 or PyQt4.")
     print('Using Qt ' + QT_VERSION_STR)
 
-    def handleLeftClick(x, y):
+    def handleMiddleClick(x, y):
         row = int(y)
         column = int(x)
-        print("Clicked on image pixel (row="+str(row)+", column="+str(column)+")")
 
     # Create the application.
     app = QApplication(sys.argv)
@@ -222,7 +300,7 @@ if __name__ == '__main__':
     viewer.loadImageFromFile()  # Pops up file dialog.
 
     # Handle left mouse clicks with custom slot.
-    viewer.leftMouseButtonPressed.connect(handleLeftClick)
+    viewer.middleMouseButtonPressed.connect(handleMiddleClick)
 
     # Show viewer and run application.
     viewer.show()
