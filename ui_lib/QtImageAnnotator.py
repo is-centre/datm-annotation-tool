@@ -1,7 +1,8 @@
 import os.path
 import cv2
 import numpy as np
-from qimage2ndarray import alpha_view, array2qimage
+import collections
+from qimage2ndarray import rgb_view, alpha_view, array2qimage
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
 from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog, QApplication
@@ -11,7 +12,9 @@ __original_author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
 __original_title__ = "QtImageViewer"
 __version__ = '1.0.0'
 
-__debug_out__ = "C:\\Users\\Alex\\Desktop\\"
+__debug_out__ = "C:\\Users\\Aleksei\\Desktop\\"
+
+MAX_CTRLZ_STATES = 10
 
 # Reusable component for painting over an image for, e.g., masking purposes
 class QtImageAnnotator(QGraphicsView):
@@ -27,6 +30,7 @@ class QtImageAnnotator(QGraphicsView):
     leftMouseButtonDoubleClicked = pyqtSignal(float, float)
     middleMouseButtonDoubleClicked = pyqtSignal(float, float)
     rightMouseButtonDoubleClicked = pyqtSignal(float, float)
+    mouseWheelRotated = pyqtSignal(float)
 
     def __init__(self):
         QGraphicsView.__init__(self)
@@ -40,6 +44,8 @@ class QtImageAnnotator(QGraphicsView):
         self._overlayHandle = None  # This is the overlay over which we are painting
         self._cursorHandle = None  # This is the cursor that appears to assist with brush size
 
+        self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
         # Needed for proper drawing
         self.lastPoint = QPoint()
         self.lastCursorLocation = QPoint()
@@ -49,7 +55,10 @@ class QtImageAnnotator(QGraphicsView):
 
         # Parameters of the brush and paint
         self.brush_diameter = 50
-        self.brush_fill_color = QColor(255,0,70,99)
+        self.MIN_BRUSH_DIAMETER = 1
+        self.MAX_BRUSH_DIAMETER = 500
+
+        self.brush_fill_color = QColor(255,0,0,99)
 
         # Painting and erasing modes
         self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
@@ -117,6 +126,45 @@ class QtImageAnnotator(QGraphicsView):
             return self._pixmapHandle.pixmap().toImage()
         return None
 
+    def clearAndSetImageAndMask(self, image, mask):
+        # Clear the scene
+        self.scene.clear()
+
+        # Clear handles
+        self._pixmapHandle = None
+        self._overlayHandle = None
+        self._overlayHandle = None
+
+        # Clear stack
+        self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
+        # First we just set the image
+        if type(image) is QPixmap:
+            pixmap = image
+        elif type(image) is QImage:
+            pixmap = QPixmap.fromImage(image)
+        else:
+            raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
+
+        self._pixmapHandle = self.scene.addPixmap(pixmap)
+        self.setSceneRect(QRectF(pixmap.rect()))
+
+        # Now we change the mask as well
+        if type(mask) is QPixmap:
+            pixmap = mask
+        elif type(mask) is QImage:
+            pixmap = QPixmap.fromImage(mask)
+        else:
+            raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
+
+        self.mask_pixmap = pixmap
+        self._overlayHandle = self.scene.addPixmap(self.mask_pixmap)
+
+        # Add brush cursor to top layer
+        self._cursorHandle = self.scene.addEllipse(0, 0, self.brush_diameter, self.brush_diameter)
+
+        self.updateViewer()
+
     def setImage(self, image):
         """ Set the scene's current image pixmap to the input QImage or QPixmap.
         Raises a RuntimeError if the input image has type other than QImage or QPixmap.
@@ -175,6 +223,20 @@ class QtImageAnnotator(QGraphicsView):
         """
         self.updateViewer()
 
+    def update_brush_diameter(self, change):
+        val = self.brush_diameter
+        val += change
+        if val > self.MAX_BRUSH_DIAMETER:
+            val = self.MAX_BRUSH_DIAMETER
+
+        if val < self.MIN_BRUSH_DIAMETER:
+            val = self.MIN_BRUSH_DIAMETER
+
+        self.brush_diameter = val
+
+        if self._cursorHandle is not None:
+            self._cursorHandle.setRect(0, 0, self.brush_diameter, self.brush_diameter)
+
     def update_cursor_location(self, event):
         # There's a problem with this cursor that it's too big.
         # self.viewport().setCursor(Qt.CrossCursor)
@@ -192,7 +254,15 @@ class QtImageAnnotator(QGraphicsView):
     def wheelEvent(self, event):
 
         self.redraw_cursor()
-        QGraphicsView.wheelEvent(self, event)
+
+        # Depending on whether control is pressed, set brush diameter accordingly
+        if QApplication.keyboardModifiers() & Qt.ControlModifier:
+            change = 1 if event.angleDelta().y() > 0 else -1
+            self.update_brush_diameter(change)
+            self.redraw_cursor()
+            self.mouseWheelRotated.emit(change)
+        else:
+            QGraphicsView.wheelEvent(self, event)
 
     def mouseMoveEvent(self, event):
 
@@ -223,7 +293,13 @@ class QtImageAnnotator(QGraphicsView):
         painter.setBrush(self.brush_fill_color)
         painter.drawEllipse(scenePos.x() - self.brush_diameter/2,
                             scenePos.y() - self.brush_diameter/2, self.brush_diameter, self.brush_diameter)
+
+        # TODO: With really large images, update is very slow. Must somehow fix this.
+        # It seems that the way to approach hardcore optimization is to switch to OpenGL
+        # for all rendering purposes. This update will likely come much later in the tool's
+        # lifecycle.
         self._overlayHandle.setPixmap(self.mask_pixmap)
+
         self.lastPoint = scenePos
 
     # Draws a line
@@ -237,30 +313,15 @@ class QtImageAnnotator(QGraphicsView):
         self._overlayHandle.setPixmap(self.mask_pixmap)
         self.lastPoint = scenePos
 
-    # Convert pixmap to numpy array
-    @staticmethod
-    def pixmap2np(pixmap):
-
-        # Get shape info and convert to image
-        width, height, depth = pixmap.rect().width(), pixmap.rect().height(), int(pixmap.depth()/8)
-        print(depth)
-        img = pixmap.toImage()
-
-        # Convert to OpenCV format for processing and return the result
-        s = img.bits().asstring(width * height * depth)
-        arr = np.fromstring(s, dtype=np.uint8).reshape((height, width, depth))
-        return arr
-
-    @staticmethod
-    def np2pixmap(arr):
-
-        return False
-
     # Fills an area using the last stored cursor location
     def fillArea(self):
 
+        # Store previous state so we can go back to it
+        self._overlay_stack.append(self.mask_pixmap.copy())
+
         # We first convert the mask to a QImage and then to ndarray
-        msk = alpha_view(self.mask_pixmap.toImage())
+        orig_mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        msk = alpha_view(orig_mask).copy()
 
         # Apply simple tresholding and invert the image
         msk[np.where((msk>0))] = 255
@@ -272,26 +333,43 @@ class QtImageAnnotator(QGraphicsView):
         cv2.floodFill(msk1, cv2.copyMakeBorder(cv2.bitwise_not(msk), 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0),
                       seed_point, 0, 0, 1)
 
-        # Now we need to replace the pixmap
-        h,w = msk1.shape
-        new_img = np.zeros((h,w,4), np.uint8)
-        new_img[np.where((msk1==0))] = list(self.brush_fill_color.getRgb())
+        # We paint in only the newly arrived pixels
+        paintin = msk - msk1
+
+        # Take original pixmap image: it has two components, RGB and ALPHA
+        new_img = np.dstack((rgb_view(orig_mask), alpha_view(orig_mask)))
+
+        # Fill the newly created area with current brush color
+        new_img[np.where((paintin==255))] = list(self.brush_fill_color.getRgb())
 
         new_qimg = array2qimage(new_img)
         self.mask_pixmap = QPixmap.fromImage(new_qimg)
         self._overlayHandle.setPixmap(self.mask_pixmap)
 
-    # We press F to fill a given area
+    # Keypress event handler
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F:
-            self.fillArea()
+            try:
+                self.viewport().setCursor(Qt.BusyCursor)
+                self.fillArea()
+            except:
+                print("Cannot fill region")
+            self.viewport().setCursor(Qt.ArrowCursor)
+
+        if event.key() == Qt.Key_Z:
+            if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                if (len(self._overlay_stack) > 0):
+                    self.mask_pixmap = self._overlay_stack.pop()
+                    self._overlayHandle.setPixmap(self.mask_pixmap)
+                    self.updateViewer()
 
     def mousePressEvent(self, event):
         """ Start drawing, panning with mouse, or zooming in
         """
-
         scenePos = self.mapToScene(event.pos())
         if event.button() == Qt.LeftButton:
+
+            self._overlay_stack.append(self.mask_pixmap.copy())
 
             # If SHIFT is held, draw a line
             if QApplication.keyboardModifiers() & Qt.ShiftModifier:
@@ -353,6 +431,15 @@ class QtImageAnnotator(QGraphicsView):
                 self.updateViewer()
             self.rightMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mouseDoubleClickEvent(self, event)
+
+    # Export current mask WITHOUT alpha channel (mask types are determined by colors, not by alpha anyway)
+    def export_ndarray_noalpha(self):
+        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        return rgb_view(mask).copy()
+
+    def export_ndarray(self):
+        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        return np.dstack((rgb_view(mask).copy(), alpha_view(mask).copy()))
 
 if __name__ == '__main__':
     import sys

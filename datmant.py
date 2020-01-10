@@ -1,5 +1,6 @@
 # Import GUI specific items
 from PyQt5 import QtGui, QtWidgets, QtCore
+from PyQt5.QtWidgets import QGraphicsView
 import sys
 import traceback
 import os
@@ -11,10 +12,11 @@ import math
 import scipy.signal
 import shutil
 import cv2
+from qimage2ndarray import array2qimage
 
 # Specific UI features
 from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QColor
 from PyQt5.QtCore import Qt, QRectF
 
 matplotlib.use("Qt5Agg")
@@ -38,10 +40,13 @@ PUBLISHER = "AlphaControlLab"
 VERSION = "1.0"
 
 # Some configs
-BRUSH_DIAMETER_MIN = 10
-BRUSH_DIAMETER_MAX = 400
-BRUSH_DIAMETER_MASK = 1000
+BRUSH_DIAMETER_MIN = 1
+BRUSH_DIAMETER_MAX = 500
 BRUSH_DIAMETER_DEFAULT = 50
+
+# Colors
+MARK_COLOR_MASK = QColor(255,0,0,99)
+MARK_COLOR_DEFECT = QColor(0,0,255,99)
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
@@ -67,7 +72,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     img_shape = None
 
     # Drawing mode
-    annotation_mode = 0 # 0 for marking defects, 1 for updating mask. Brush will change accordingly
+    annotation_mode = 0 # 0 for marking defects, 1 for updating mask
+
+    # Annotator
+    annotator = None
 
     # We should always know where the cursor is
     curx = 0
@@ -76,6 +84,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Brush
     brush = None
     brush_diameter = BRUSH_DIAMETER_DEFAULT
+
+    current_paint = None
 
     # Stored marks
     defect_marks = None
@@ -95,11 +105,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     initializing = False
     app = None
 
-    # Pixmap pointers
-    ptrImage = None
-    ptrMask1 = None
-    ptrMask2 = None
-
     def __init__(self, parent=None):
 
         self.initializing = True
@@ -108,13 +113,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         super(DATMantGUI, self).__init__(parent)
         self.setupUi(self)
 
-        TEST_IMAGE_PATH = "C:\\Users\\Alex\\Desktop\\SomeTests\\20190414_083725_LD5-050.marked.jpg"
-        #TEST_IMAGE_PATH = "C:\\Users\\Aleksei\\Desktop\\14725709_1421288274553371_3158207294626424523_n.png"
-
         from ui_lib.QtImageAnnotator import QtImageAnnotator
-        qimgannotator = QtImageAnnotator()
-        self.figThinFigure.addWidget(qimgannotator)
-        qimgannotator.setImage(QImage(TEST_IMAGE_PATH))
+        self.annotator = QtImageAnnotator()
+        self.figThinFigure.addWidget(self.annotator)
 
         # Config file storage: config file stored in user directory
         self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
@@ -126,6 +127,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
         # Button assignment
+        self.annotator.mouseWheelRotated.connect(self.accept_brush_diameter_change)
         self.btnClear.clicked.connect(self.clear_all_annotations)
         self.btnBrowseImageDir.clicked.connect(self.browse_image_directory)
         self.btnPrev.clicked.connect(self.load_prev_image)
@@ -137,24 +139,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.lstImages.currentIndexChanged.connect(self.load_image)
 
         # Update button states
-        # self.update_button_states()
-
-        # # Add the FigureCanvas
-        # self.figure_view = Figure()
-        # self.canvas_view = FigureCanvas(self.figure_view)
-        # self.toolbar_view = NavigationToolbar(self.canvas_view, self)
-        # self.figThinFigure.addWidget(self.toolbar_view)
-        # self.figThinFigure.addWidget(self.canvas_view)
-        #
-        # # Add axes
-        # self.axes_view = self.figure_view.add_subplot(111)
-
-        # Set tight layout
-        # self.figure_view.tight_layout()
+        self.update_button_states()
 
         # Initialize everything
-        # self.initialize_brush_slider()
-        # self.initialize_canvas()
+        self.initialize_brush_slider()
 
         # Check whether log should be shown or not
         self.check_show_log()
@@ -163,14 +151,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.log("Application started")
 
         # Style the mode button properly
-        # self.annotation_mode_default()
+        self.annotation_mode_default()
 
         # Initialization completed
         self.initializing = False
-
-        # Set up blitting
-        # Get background for now only
-        # self.canvas_view.mpl_connect("resize_event", self.canvas_grab_bg)
 
         # Set up the status bar
         self.status_bar_message("ready")
@@ -186,146 +170,40 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         new_diameter = self.sldBrushDiameter.value()
         self.txtBrushDiameter.setText(str(new_diameter))
         self.brush_diameter = new_diameter
-        self.update_brush()
+        self.update_annotator()
 
-    # Initialize canvas: add all the necessary functionality
-    def initialize_canvas(self):
-        self.canvas_view.mpl_connect('motion_notify_event', self.canvas_mouse_interaction)
-        self.canvas_view.mpl_connect('button_press_event', self.canvas_mouse_interaction)
+    def accept_brush_diameter_change(self, change):
 
-    # Helper function for disabling zoom after zoom event
-    def canvas_zoom_changed(self, event=None):
-        if self.toolbar_view.mode == "zoom rect":
-            self.toolbar_view.zoom()
-        self.canvas_grab_bg()
+        # Need to disconnect slider while changing value
+        self.sldBrushDiameter.sliderMoved.disconnect()
 
-    # Get the correct brush diameter depending on the current mode
-    def get_mode_diam(self):
-        if self.annotation_mode == 0:
-            return self.brush_diameter
-        elif self.annotation_mode == 1:
-            return BRUSH_DIAMETER_MASK
-        else:
-            return BRUSH_DIAMETER_DEFAULT
+        new_diameter = int(self.sldBrushDiameter.value()+change)
+        new_diameter = BRUSH_DIAMETER_MIN if new_diameter < BRUSH_DIAMETER_MIN else new_diameter
+        new_diameter = BRUSH_DIAMETER_MAX if new_diameter > BRUSH_DIAMETER_MAX else new_diameter
+        self.sldBrushDiameter.setValue(new_diameter)
+        self.txtBrushDiameter.setText(str(new_diameter))
 
-    def update_brush(self):
-        # Get the diameter
-        set_diam = self.get_mode_diam()
+        # Reconnect to slider move interrupt
+        self.sldBrushDiameter.sliderMoved.connect(self.brush_slider_update)
 
-        # Create the brush if it doesn't exist
-        if self.brush is None:
-            self.brush = self.axes_view.add_patch(
-                patches.Circle((self.curx, self.cury), int(set_diam/2), fc="None", ec='black', ls="--"))
-
-        # Make sure all parameters of the brush are updated
-        self.brush.set_radius(int(set_diam/2))
-
-    def canvas_mouse_interaction(self, event):
-
-        # Get cursor location
-        curx = event.xdata
-        cury = event.ydata
-
-        # Stop here if we are outside the image
-        if curx is None or cury is None:
-            return
-
-        # Otherwise update the coordinates
-        self.curx = curx
-        self.cury = cury
-
-        # Update brush
-        self.update_brush()
-
-        # If we are in pan or resize mode, we stop here
-        if self.toolbar_view.mode != "":
-            self.brush.set_visible(False)
-            return
-
-        # Otherwise we proceed with drawing the brush
-        self.brush.set_visible(True)
-
-        # Update brush coordinates
-        self.brush.center = (curx, cury)
-
-        # If mouse 1 is pressed, we need to start storing the on canvas paint events
-        if event.button == 1:
-            # Depends on mode
-            brush_diam = self.get_mode_diam()
-            if self.annotation_mode == 0:
-                if self.defect_marks is None:
-                    self.defect_marks = []
-                self.defect_marks.append(
-                    self.axes_view.add_patch(patches.Circle((self.curx, self.cury),
-                                                            int(brush_diam/2), fc=(0,0,1,0.1), ec='None')))
-            elif self.annotation_mode == 1:
-                if self.mask_marks is None:
-                    self.mask_marks = []
-                self.mask_marks.append(
-                    self.axes_view.add_patch(patches.Circle((self.curx, self.cury),
-                                                            int(brush_diam / 2), fc=(1, 0, 0, 0.1), ec='None')))
-        self.canvas_blit()
-
-    def canvas_grab_bg(self, event=None):
-        # Disable all drawable actors
-        if self.brush is not None:
-            self.brush.set_visible(False)
-        if self.defect_marks is not None:
-            for dm in self.defect_marks:
-                dm.set_visible(False)
-        if self.mask_marks is not None:
-            for mm in self.mask_marks:
-                mm.set_visible(False)
-
-        self.canvas_view.draw()
-        self.canvas_bg = self.canvas_view.copy_from_bbox(self.figure_view.bbox)
-
-        # Re-enable drawable actors
-        if self.defect_marks is not None:
-            for dm in self.defect_marks:
-                dm.set_visible(True)
-        if self.mask_marks is not None:
-            for mm in self.mask_marks:
-                mm.set_visible(True)
-        if self.brush is not None:
-            self.brush.set_visible(True)
-
-        self.canvas_blit()
-
-    def canvas_blit(self):
-        self.canvas_view.restore_region(self.canvas_bg)
-
-        # Draw actors that exist
-        if self.brush is not None:
-            self.axes_view.draw_artist(self.brush)
-        if self.defect_marks is not None:
-            for dm in self.defect_marks:
-                self.axes_view.draw_artist(dm)
-        if self.mask_marks is not None:
-            for mm in self.mask_marks:
-                self.axes_view.draw_artist(mm)
-
-        self.canvas_view.blit(self.figure_view.bbox)
-
+    # Clear currently used paint completely
     def clear_all_annotations(self):
 
-        if self.defect_marks is not None and len(self.defect_marks)>0:
-            for dm in self.defect_marks:
-                dm.remove()
-        self.defect_marks = None
+        print("Not implemented")
 
-        if self.mask_marks is not None and len(self.mask_marks)>0:
-            for mm in self.mask_marks:
-                mm.remove()
-        self.mask_marks = None
-
-        self.canvas_blit()
+    def update_annotator(self):
+        if self.annotator is not None:
+            self.annotator.brush_diameter = self.brush_diameter
+            self.annotator.update_brush_diameter(0)
+            self.annotator.brush_fill_color = self.current_paint
 
     # Change annotation mode
     def annotation_mode_switch(self):
         self.annotation_mode += 1
         if self.annotation_mode > 1:
             self.annotation_mode = 0
+        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
                                    + self.ANNOTATION_MODES_BUTTON_COLORS[self.annotation_mode] + "}")
@@ -333,6 +211,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Set default annotation mode
     def annotation_mode_default(self):
         self.annotation_mode = 0
+        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
                                    + self.ANNOTATION_MODES_BUTTON_COLORS[self.annotation_mode] + "}")
@@ -347,6 +227,28 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
 
+    # Get both masks as separate numpy arrays
+    def get_updated_masks(self):
+        if self.annotator._overlayHandle is not None:
+
+            # Get the overall mask
+            mask = self.annotator.export_ndarray_noalpha()
+
+            # And create empty masks
+            update_mask = 255*np.ones(self.img_shape, dtype=np.uint8)
+            defect_mask = np.zeros(self.img_shape, dtype=np.uint8)
+
+            # NB! This approach beats np.where: it is 4.3 times faster!
+            reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
+
+            m1 = list(MARK_COLOR_MASK.getRgb())[:-1]
+            update_mask[(reds == m1[0]) & (greens == m1[1]) & (blues == m1[2])] = 0
+
+            m2 = list(MARK_COLOR_DEFECT.getRgb())[:-1]
+            defect_mask[(reds == m2[0]) & (greens == m2[1]) & (blues == m2[2])] = 255
+
+            return update_mask, defect_mask
+
     # Loads the image
     def load_image(self):
 
@@ -355,10 +257,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Process events
             self.app.processEvents()
-
-            # TODO: fix all this...
-            # self.axes_view.clear()
-            # self.clear_all_annotations()
 
             # Get the image from the list
             img_name = self.lstImages.currentText()
@@ -372,33 +270,23 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.log("Loading image " + img_name_no_ext)
 
             # To test we load an image here
-            img = cv2.imread(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = QImage(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
 
-            self.img_shape = img.shape
+            # Shape of the image
+            h, w = img.rect().height(), img.rect().width()
+
+            self.img_shape = (h,w)
 
             # Load the mask as well
-            img_m = cv2.imread(img_path + ".cut.mask.png")
+            try:
+                img_m = cv2.imread(img_path + ".cut.mask.png", cv2.IMREAD_GRAYSCALE)
+            except:
+                self.log("No mask is found for the image. The mask will be empty")
+                img_m = np.zeros((h,w,1), dtype=np.uint8)
 
-            # Store the mask for later use
-            self.current_mask = img_m
-
-            # Proceed with display purposes
-            img_m = cv2.bitwise_not(img_m) # Invert mask
-            img_m[np.where((img_m == [255, 255, 255]).all(axis=2))] = [255, 0, 0] # Masked area is red
-
-            # Blend the two images
-            img_b = cv2.addWeighted(img, 1, img_m, 0.3, 0)
-
-            # Apply to axes
-            self.axes_view.imshow(img_b)
-
-            # Set up axes callbacks
-            self.axes_view.callbacks.connect("xlim_changed", self.canvas_zoom_changed)
-            self.axes_view.callbacks.connect("ylim_changed", self.canvas_zoom_changed)
-
-            self.canvas_view.draw()
-            self.canvas_grab_bg()
+            # We need to create the empty pixmap and then add correct colors to it thus
+            # creating a blended image of the masks
+            img_b = np.zeros((h,w,4), dtype=np.uint8)
 
             # Set also default annotation mode
             self.annotation_mode_default()
@@ -406,21 +294,32 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Add some useful information
             at_least_something = False
             if os.path.isfile(img_path + ".cut.mask_v2.png"):
+                # Image has updated defect mask, need to load it instead
+                img_m = cv2.imread(img_path + ".cut.mask_v2.png", cv2.IMREAD_GRAYSCALE)
+                self.log("Detected updated mask, loading it instead of base mask")
                 self.txtImageHasDefectMask.setText("YES")
                 at_least_something = True
             else:
                 self.txtImageHasDefectMask.setText("NO")
 
+            img_b[img_m == 0] = list(MARK_COLOR_MASK.getRgb())
+
             if os.path.isfile(img_path + ".defect.mask.png"):
+                # We need to open the mask
+                img_d = cv2.imread(img_path + ".defect.mask.png", cv2.IMREAD_GRAYSCALE)
+                # And blend in the colors of the overlay
+                img_b[img_d == 255] = list(MARK_COLOR_DEFECT.getRgb())
                 self.txtImageStatus.setText("PROCESSED, defect mask found in directory")
             elif at_least_something:
                 self.txtImageStatus.setText("SEEN BEFORE, but there is no defect mask")
             else:
                 self.txtImageStatus.setText("No info")
 
+            # Once all that is done, we need to convert the mask to a qimage and update the viewport
+            self.annotator.clearAndSetImageAndMask(img, array2qimage(img_b))
+
             self.status_bar_message("ready")
             self.log("Done loading image")
-            splash.close()
 
     def load_prev_image(self):
         total_items = self.lstImages.count()
@@ -454,19 +353,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         save_dir = self.txtImageDir.text()
         save_path_defects = save_dir + self.current_img + ".defect.mask.png"
         save_path_masks = save_dir + self.current_img + ".cut.mask_v2.png"
-        if self.defect_marks is not None and len(self.defect_marks) > 0:
-            new_image = np.zeros(self.img_shape, np.uint8)
-            for circ in self.defect_marks:
-                cv2.circle(new_image, (int(circ.center[0]), int(circ.center[1])), int(circ.radius), (255,255,255),-1)
-            cv2.imwrite(save_path_defects, new_image)
-            self.log("Saved defect annotations for image " + self.current_img)
-        if self.mask_marks is not None and len(self.mask_marks) > 0:
-            new_image = self.current_mask
-            for circ in self.mask_marks:
-                cv2.circle(new_image, (int(circ.center[0]), int(circ.center[1])), int(circ.radius), (0, 0, 0), -1)
-            # Now we have to do bitwise
-            cv2.imwrite(save_path_masks, new_image)
-            self.log("Saved updated mask for image " + self.current_img)
+
+        m1, m2 = self.get_updated_masks()
+        cv2.imwrite(save_path_defects, m2)
+        self.log("Saved defect annotations for image " + self.current_img)
+
+        cv2.imwrite(save_path_masks, m1)
+        self.log("Saved updated mask for image " + self.current_img)
 
     # In-GUI console log
     def log(self, line):
