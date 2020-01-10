@@ -1,7 +1,8 @@
 name: datm-annotation-tool
 channels:
-  - https://repo.continuum.io/pkgs/main/win-64/
   - defaults
+  - conda-forge
+  - https://repo.continuum.io/pkgs/main/win-64/
 dependencies:
   - alabaster=0.7.12=py37_0
   - altgraph=0.16.1=py_0
@@ -12,8 +13,8 @@ dependencies:
   - backcall=0.1.0=py37_0
   - blas=1.0=mkl
   - bleach=3.1.0=py37_0
-  - ca-certificates=2019.8.28=0
-  - certifi=2019.9.11=py37_0
+  - ca-certificates=2019.11.27=0
+  - certifi=2019.11.28=py37_0
   - cffi=1.12.3=py37h7a1dbc1_0
   - chardet=3.0.4=py37_1003
   - cloudpickle=1.2.2=py_0
@@ -65,7 +66,7 @@ dependencies:
   - numpydoc=0.9.1=py_0
   - olefile=0.46=py37_0
   - opencv=3.4.2=py37h40b0b35_0
-  - openssl=1.1.1d=he774522_2
+  - openssl=1.1.1d=he774522_3
   - packaging=19.2=py_0
   - pandas=0.25.1=py37ha925a31_0
   - pandoc=2.2.3.2=0
@@ -96,6 +97,7 @@ dependencies:
   - pywin32=223=py37hfa6e2cd_1
   - pywin32-ctypes=0.2.0=py37_0
   - pyzmq=18.1.0=py37ha925a31_0
+  - qimage2ndarray=1.7=py_0
   - qt=5.9.7=vc14h73c81de_0
   - qtawesome=0.6.0=py_0
   - qtconsole=4.5.5=py_0
