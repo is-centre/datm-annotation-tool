@@ -242,11 +242,14 @@
          </item>
          <item>
           <widget class="QPushButton" name="btnClear">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <property name="text">
             <string>[R] Clear ALL annotations</string>
            </property>
            <property name="shortcut">
-            <string>R</string>
+            <string>Backspace</string>
            </property>
           </widget>
          </item>
@@ -316,6 +319,7 @@
      <string>File</string>
     </property>
     <addaction name="actionSave_current_annotations"/>
+    <addaction name="actionReload_original_mask"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -361,6 +365,14 @@
    </property>
    <property name="text">
     <string>Load marked image</string>
+   </property>
+  </action>
+  <action name="actionReload_original_mask">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Reload original mask</string>
    </property>
   </action>
  </widget>

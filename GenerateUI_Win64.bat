@@ -1,6 +1,6 @@
 @echo off
 
-SET pyuicpath="C:\Anaconda\Library\bin\pyuic5"
+SET pyuicpath="C:\Users\Alex\.conda\envs\datm-annotation-tool\Library\bin\pyuic5"
 
 echo Running pyuic5...
 
