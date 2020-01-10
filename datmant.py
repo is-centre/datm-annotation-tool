@@ -108,29 +108,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         super(DATMantGUI, self).__init__(parent)
         self.setupUi(self)
 
-        #TEST_IMAGE_PATH = "C:\\Users\\Alex\\Desktop\\SomeTests\\20190414_083725_LD5-050.marked.jpg"
-        TEST_IMAGE_PATH = "C:\\Users\\Aleksei\\Desktop\\14725709_1421288274553371_3158207294626424523_n.png"
+        TEST_IMAGE_PATH = "C:\\Users\\Alex\\Desktop\\SomeTests\\20190414_083725_LD5-050.marked.jpg"
+        #TEST_IMAGE_PATH = "C:\\Users\\Aleksei\\Desktop\\14725709_1421288274553371_3158207294626424523_n.png"
 
-        self.gviewEditor.scene = QGraphicsScene()
-        self.gviewEditor.setScene(self.gviewEditor.scene)
-        self.gviewEditor.aspectRatioMode = Qt.KeepAspectRatio
-        self.gviewEditor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.gviewEditor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.gviewEditor.zoomStack = []
-
-        image = QImage(TEST_IMAGE_PATH)
-        pixmap = QPixmap.fromImage(image)
-        self.gviewEditor.ptrImage = self.gviewEditor.scene.addPixmap(pixmap)
-        self.gviewEditor.setSceneRect(QRectF(pixmap.rect()))
-        # self.gviewEditor.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        # self.gviewEditor.setSceneRect(QRectF(self.gviewEditor.rect()))
-        print(QRectF(self.gviewEditor.rect()))
-
-        if len(self.gviewEditor.zoomStack) and self.gviewEditor.sceneRect().contains(self.gviewEditor.zoomStack[-1]):
-            self.gviewEditor.fitInView(self.gviewEditor.zoomStack[-1], Qt.IgnoreAspectRatio)  # Show zoomed rect (ignore aspect ratio).
-        else:
-            self.gviewEditor.zoomStack = []
-            self.gviewEditor.fitInView(self.gviewEditor.sceneRect(), self.gviewEditor.aspectRatioMode)
+        from ui_lib.QtImageAnnotator import QtImageAnnotator
+        qimgannotator = QtImageAnnotator()
+        self.figThinFigure.addWidget(qimgannotator)
+        qimgannotator.setImage(QImage(TEST_IMAGE_PATH))
 
         # Config file storage: config file stored in user directory
         self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
@@ -190,14 +174,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Set up the status bar
         self.status_bar_message("ready")
-
-    def resizeEvent(self, event):
-        if len(self.gviewEditor.zoomStack) and self.gviewEditor.sceneRect().contains(self.gviewEditor.zoomStack[-1]):
-            self.gviewEditor.fitInView(self.gviewEditor.zoomStack[-1],
-                                       Qt.IgnoreAspectRatio)  # Show zoomed rect (ignore aspect ratio).
-        else:
-            self.gviewEditor.zoomStack = []
-            self.gviewEditor.fitInView(self.gviewEditor.sceneRect(), self.gviewEditor.aspectRatioMode)
 
     def initialize_brush_slider(self):
         self.sldBrushDiameter.setMinimum(BRUSH_DIAMETER_MIN)
@@ -377,13 +353,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if not self.initializing:
             self.status_bar_message("loading")
 
-            # Also show splash screen for added convenience
-            splash = QSplashScreen(QPixmap("res/loading.png"), Qt.WindowStaysOnTopHint)
-            splash.show()
+            # Process events
             self.app.processEvents()
 
-            self.axes_view.clear()
-            self.clear_all_annotations()
+            # TODO: fix all this...
+            # self.axes_view.clear()
+            # self.clear_all_annotations()
 
             # Get the image from the list
             img_name = self.lstImages.currentText()

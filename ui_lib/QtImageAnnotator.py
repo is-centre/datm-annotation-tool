@@ -1,46 +1,30 @@
-""" QtImageViewer.py: PyQt image viewer widget for a QPixmap in a QGraphicsView scene with mouse zooming and panning.
-
-"""
-
 import os.path
-try:
-    from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
-    from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor
-    from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog
-except ImportError:
-    try:
-        from PyQt4.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR
-        from PyQt4.QtGui import QGraphicsView, QGraphicsScene, QImage, QPixmap, QPainterPath, QFileDialog
-    except ImportError:
-        raise ImportError("QtImageViewer: Requires PyQt5 or PyQt4.")
+import cv2
+import numpy as np
+from qimage2ndarray import alpha_view, array2qimage
+from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
+from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor, QPen
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog, QApplication
 
+__author__ = "Aleksei Tepljakov <alex@starspirals.net>"
+__original_author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
+__original_title__ = "QtImageViewer"
+__version__ = '1.0.0'
 
-__author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
-__version__ = '0.9.0'
+__debug_out__ = "C:\\Users\\Alex\\Desktop\\"
 
-
-class QtImageViewer(QGraphicsView):
-    """ PyQt image viewer widget for a QPixmap in a QGraphicsView scene with mouse zooming and panning.
-
-    Displays a QImage or QPixmap (QImage is internally converted to a QPixmap).
-    To display any other image format, you must first convert it to a QImage or QPixmap.
-
-    Some useful image format conversion utilities:
-        qimage2ndarray: NumPy ndarray <==> QImage    (https://github.com/hmeine/qimage2ndarray)
-        ImageQt: PIL Image <==> QImage  (https://github.com/python-pillow/Pillow/blob/master/PIL/ImageQt.py)
-
-    Mouse interaction:
-        Left mouse button drag: Pan image.
-        Right mouse button drag: Zoom box.
-        Right mouse button doubleclick: Zoom to show entire image.
-    """
+# Reusable component for painting over an image for, e.g., masking purposes
+class QtImageAnnotator(QGraphicsView):
 
     # Mouse button signals emit image scene (x, y) coordinates.
     # !!! For image (row, column) matrix indexing, row = y and column = x.
+    leftMouseButtonPressed = pyqtSignal(float, float)
     middleMouseButtonPressed = pyqtSignal(float, float)
     rightMouseButtonPressed = pyqtSignal(float, float)
+    leftMouseButtonReleased = pyqtSignal(float, float)
     middleMouseButtonReleased = pyqtSignal(float, float)
     rightMouseButtonReleased = pyqtSignal(float, float)
+    leftMouseButtonDoubleClicked = pyqtSignal(float, float)
     middleMouseButtonDoubleClicked = pyqtSignal(float, float)
     rightMouseButtonDoubleClicked = pyqtSignal(float, float)
 
@@ -52,17 +36,30 @@ class QtImageViewer(QGraphicsView):
         self.setScene(self.scene)
 
         # Store a local handle to the scene's current image pixmap.
-        self._pixmapHandle = None
-        self._overlayHandle = None
-        self._cursorHandle = None
+        self._pixmapHandle = None  # This holds the image
+        self._overlayHandle = None  # This is the overlay over which we are painting
+        self._cursorHandle = None  # This is the cursor that appears to assist with brush size
+
+        # Needed for proper drawing
+        self.lastPoint = QPoint()
+        self.lastCursorLocation = QPoint()
 
         # Pixmap that contains the mask and the corresponding painter
         self.mask_pixmap = None
 
+        # Parameters of the brush and paint
+        self.brush_diameter = 50
+        self.brush_fill_color = QColor(255,0,70,99)
+
+        # Painting and erasing modes
+        self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
+        self.MODE_ERASE = QPainter.CompositionMode_Clear
+        self.current_painting_mode = self.MODE_PAINT
+
+        # Make mouse events accessible
         self.setMouseTracking(True)
 
         # Image aspect ratio mode.
-        # !!! ONLY applies to full image. Aspect ratio is always ignored when zooming.
         #   Qt.IgnoreAspectRatio: Scale image to fit viewport.
         #   Qt.KeepAspectRatio: Scale image to fit inside viewport, preserving aspect ratio.
         #   Qt.KeepAspectRatioByExpanding: Scale image to fill the viewport, preserving aspect ratio.
@@ -137,15 +134,16 @@ class QtImageViewer(QGraphicsView):
             self._pixmapHandle = self.scene.addPixmap(pixmap)
 
         self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
-        self.updateViewer()
 
         # Add the mask layer
         self.mask_pixmap = QPixmap(pixmap.rect().width(), pixmap.rect().height())
         self.mask_pixmap.fill(QColor(0,0,0,0))
         self._overlayHandle = self.scene.addPixmap(self.mask_pixmap)
 
-        # Also add cursor to a layer higher
-        self._cursorHandle = self.scene.addEllipse(0,0,50,50)
+        # Add brush cursor to top layer
+        self._cursorHandle = self.scene.addEllipse(0,0,self.brush_diameter,self.brush_diameter)
+
+        self.updateViewer()
 
     def loadImageFromFile(self, fileName=""):
         """ Load an image from file.
@@ -167,7 +165,6 @@ class QtImageViewer(QGraphicsView):
         if not self.hasImage():
             return
         if len(self.zoomStack) and self.sceneRect().contains(self.zoomStack[-1]):
-            # TODO: Originally Qt.IgnoreAspectRatio - I still have no idea why. Works well with respect aspect ratio
             self.fitInView(self.zoomStack[-1], self.aspectRatioMode)   # Show zoomed rect
         else:
             self.zoomStack = []  # Clear the zoom stack (in case we got here because of an invalid zoom).
@@ -186,7 +183,7 @@ class QtImageViewer(QGraphicsView):
         x, y = scenePos.x(), scenePos.y()
 
         if self._cursorHandle is not None:
-            self._cursorHandle.setPos(x - 25, y - 25)
+            self._cursorHandle.setPos(x - self.brush_diameter/2, y - self.brush_diameter/2)
 
     def redraw_cursor(self):
         if self._cursorHandle is not None:
@@ -210,26 +207,106 @@ class QtImageViewer(QGraphicsView):
 
         # Filling in the markers
         if event.buttons() == Qt.LeftButton:
-            self.fillMarker(event)
+            self.drawMarkerLine(event)
+
+        # Store cursor location separately; needed for certain operations (like fill)
+        self.lastCursorLocation = self.mapToScene(event.pos())
 
         QGraphicsView.mouseMoveEvent(self, event)
 
-    # TODO: Make drawing appropriate like in quick_test, circle only on first click, line when moving!
+    # Draws a single ellipse
     def fillMarker(self, event):
         scenePos = self.mapToScene(event.pos())
         painter = QPainter(self.mask_pixmap)
-        painter.setCompositionMode(QPainter.RasterOp_SourceOrDestination)
+        painter.setCompositionMode(self.current_painting_mode)
         painter.setPen(QColor(0,0,0,0))
-        painter.setBrush(QColor(255, 0, 0, 127))
-        painter.drawEllipse(scenePos.x() - 25, scenePos.y() - 25, 50, 50)
+        painter.setBrush(self.brush_fill_color)
+        painter.drawEllipse(scenePos.x() - self.brush_diameter/2,
+                            scenePos.y() - self.brush_diameter/2, self.brush_diameter, self.brush_diameter)
+        self._overlayHandle.setPixmap(self.mask_pixmap)
+        self.lastPoint = scenePos
+
+    # Draws a line
+    def drawMarkerLine(self, event):
+        scenePos = self.mapToScene(event.pos())
+        painter = QPainter(self.mask_pixmap)
+        painter.setCompositionMode(self.current_painting_mode)
+        painter.setPen(QPen(self.brush_fill_color,
+                            self.brush_diameter, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawLine(self.lastPoint, scenePos)
+        self._overlayHandle.setPixmap(self.mask_pixmap)
+        self.lastPoint = scenePos
+
+    # Convert pixmap to numpy array
+    @staticmethod
+    def pixmap2np(pixmap):
+
+        # Get shape info and convert to image
+        width, height, depth = pixmap.rect().width(), pixmap.rect().height(), int(pixmap.depth()/8)
+        print(depth)
+        img = pixmap.toImage()
+
+        # Convert to OpenCV format for processing and return the result
+        s = img.bits().asstring(width * height * depth)
+        arr = np.fromstring(s, dtype=np.uint8).reshape((height, width, depth))
+        return arr
+
+    @staticmethod
+    def np2pixmap(arr):
+
+        return False
+
+    # Fills an area using the last stored cursor location
+    def fillArea(self):
+
+        # We first convert the mask to a QImage and then to ndarray
+        msk = alpha_view(self.mask_pixmap.toImage())
+
+        # Apply simple tresholding and invert the image
+        msk[np.where((msk>0))] = 255
+        msk = 255-msk
+
+        # Fill the contour
+        seed_point = (int(self.lastCursorLocation.x()), int(self.lastCursorLocation.y()))
+        msk1 = np.copy(msk)
+        cv2.floodFill(msk1, cv2.copyMakeBorder(cv2.bitwise_not(msk), 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0),
+                      seed_point, 0, 0, 1)
+
+        # Now we need to replace the pixmap
+        h,w = msk1.shape
+        new_img = np.zeros((h,w,4), np.uint8)
+        new_img[np.where((msk1==0))] = list(self.brush_fill_color.getRgb())
+
+        new_qimg = array2qimage(new_img)
+        self.mask_pixmap = QPixmap.fromImage(new_qimg)
         self._overlayHandle.setPixmap(self.mask_pixmap)
 
+    # We press F to fill a given area
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F:
+            self.fillArea()
+
     def mousePressEvent(self, event):
-        """ Start mouse pan or zoom mode.
+        """ Start drawing, panning with mouse, or zooming in
         """
+
         scenePos = self.mapToScene(event.pos())
         if event.button() == Qt.LeftButton:
+
+            # If SHIFT is held, draw a line
+            if QApplication.keyboardModifiers() & Qt.ShiftModifier:
+                self.drawMarkerLine(event)
+
+            # If CONTROL is held, erase
+            if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                self.current_painting_mode = self.MODE_ERASE
+            else:
+                self.current_painting_mode = self.MODE_PAINT
+
+            # If the user just clicks, add a marker
             self.fillMarker(event)
+
+            self.leftMouseButtonPressed.emit(scenePos.x(), scenePos.y())
         elif event.button() == Qt.MiddleButton:
             if self.canPan:
                 self.__prevMousePos = event.pos()
@@ -251,7 +328,7 @@ class QtImageViewer(QGraphicsView):
         if event.button() == Qt.MiddleButton:
             self.viewport().setCursor(Qt.ArrowCursor)
             self._cursorHandle.show()
-
+            self.middleMouseButtonReleased.emit(scenePos.x(), scenePos.y())
         elif event.button() == Qt.RightButton:
             if self.canZoom:
                 viewBBox = self.zoomStack[-1] if len(self.zoomStack) else self.sceneRect()
@@ -279,14 +356,7 @@ class QtImageViewer(QGraphicsView):
 
 if __name__ == '__main__':
     import sys
-    try:
-        from PyQt5.QtWidgets import QApplication
-    except ImportError:
-        try:
-            from PyQt4.QtGui import QApplication
-        except ImportError:
-            raise ImportError("QtImageViewer: Requires PyQt5 or PyQt4.")
-    print('Using Qt ' + QT_VERSION_STR)
+    from PyQt5.QtWidgets import QApplication
 
     def handleMiddleClick(x, y):
         row = int(y)
@@ -296,11 +366,8 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
 
     # Create image viewer and load an image file to display.
-    viewer = QtImageViewer()
+    viewer = QtImageAnnotator()
     viewer.loadImageFromFile()  # Pops up file dialog.
-
-    # Handle left mouse clicks with custom slot.
-    viewer.middleMouseButtonPressed.connect(handleMiddleClick)
 
     # Show viewer and run application.
     viewer.show()
