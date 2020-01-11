@@ -5,12 +5,6 @@ import sys
 import traceback
 import os
 import numpy as np
-import matplotlib
-import pandas as pd
-from pandas import Series, DataFrame
-import math
-import scipy.signal
-import shutil
 import cv2
 from qimage2ndarray import array2qimage
 
@@ -19,21 +13,11 @@ from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDia
 from PyQt5.QtGui import QPixmap, QImage, QColor
 from PyQt5.QtCore import Qt, QRectF
 
-matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-
-plt.ion()
-import matplotlib.patches as patches
 from ui import datmant_ui
 import configparser
 import time
 import datetime
-import pickle
 import subprocess
-
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
 # Overall constants
 PUBLISHER = "AlphaControlLab"
