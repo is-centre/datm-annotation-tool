@@ -6,6 +6,8 @@ datm-annotation-tool is a PyQt5 application intended for annotating road segment
 
 Both of these goals are achieved using painting tools implemented in a standalone component **QtImageAnnotator** derived from [PyQtImageViewer](https://github.com/marcel-goldschen-ohm/PyQtImageViewer). This component can be used separately from the application. It is available in the `ui_lib` folder.
 
+Note that for large images (over 4k by 4k resolution in either dimension) the painting will become slower (though still possible).
+
 Basic instructions on how to use the tool are provided next.
 
 ### Installation
@@ -68,6 +70,7 @@ It is assumed that a typical computer mouse with three buttons and a scroll whee
 * To change brush size, **rotate the mouse wheel** while **holding control**. You can also change the size of the brush using the corresponding slider in the UI.
 * To create *line segments*, **left click** once at the starting point and then **shift-left click** at the end point.
 * To fill bounded areas with selected brush color, position the brush over the area and press **[F]** on the keyboard.
+* There is also a 10 step buffer for undoing incorrect painting operations via the usual shortcut **CTRL+Z**. Note however that a forward step is not yet available, so once undone you cannot reverse the operation via CTRL+Y.
 
 At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet.
 
