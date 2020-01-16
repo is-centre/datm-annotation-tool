@@ -41,6 +41,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     ANNOTATION_MODES_BUTTON_TEXT = {0: "Mode [Marking defects]", 1: "Mode [Marking mask]"}
     ANNOTATION_MODES_BUTTON_COLORS = {0: "blue", 1: "red"}
 
+    # Mask file extension. If it changes in the future, it is easier to swap it here
+    MASK_FILE_EXTENSION_PATTERN = ".mask.png"
+
     # Config file
     config_path = None  # Path to config file
     config_data = None  # The actual configuration
@@ -263,7 +266,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Load the mask as well
             try:
-                img_m = cv2.imread(img_path + ".cut.mask.png", cv2.IMREAD_GRAYSCALE)
+                img_m = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
             except:
                 self.log("No mask is found for the image. The mask will be empty")
                 img_m = np.zeros((h,w,1), dtype=np.uint8)
