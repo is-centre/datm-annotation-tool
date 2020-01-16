@@ -37,7 +37,7 @@ After starting the tool, you are presented with the following interface:
 The first thing to do, is to browse to the folder that contains the orthoframes of interest. To do this, click on the **Browse...** button in the bottom portion of the interface. Note, that every orthoframe image `FILENAME.jpg` file in the folder is assumed to have particular companion files:
 
 * `FILENAME.marked.jpg`: this file should contain defect markings painted over pavement distress. The Python script for creating these files is available separately. For testing purposes, you can simple create these files by adding `.marked` to the end of the file name before the extension.
-* `FILENAME.cut.mask.png`: the auto-corrected mask of the paved road part of the image. If it does not exist, an empty mask will be used.
+* `FILENAME.mask.png`: the initial mask of the paved road part of the image. If it does not exist, an empty mask will be used.
 
 Also note that the tool will produce the following files for every processed orthoframe:
 
@@ -82,6 +82,6 @@ At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet
 
 Note that **companion files will be automatically created for each orthoframe** once you choose another one from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image*. The application also warns you when navigating files whether you have reached either end of the folder.
 
-The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation:
+The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is narrow. In case of questions, please consult the team responsible for developing this tool.
 
 ![LaunchWindow](.github/img/datmant_usage.gif)
