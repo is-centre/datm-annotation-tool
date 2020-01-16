@@ -80,7 +80,9 @@ At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet
 * To zoom out, **double right click**.
 * To pan the image while zoomed-in, **middle click and drag**.
 
-Note that **companion files will be automatically created for each orthoframe** once you choose another one from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image*. The application also warns you when navigating files whether you have reached either end of the folder.
+Note that **companion files will be automatically saved for each orthoframe only** once you choose another orthoframe from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image* or choose **File->Save current annotations** from the menu. The application also warns you when navigating files whether you have reached either end of the folder.
+
+The **View->Load marked image** checkbox allows to load either pre-annotated reference images (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes.
 
 The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is narrow. In case of questions, please consult the team responsible for developing this tool.
 
