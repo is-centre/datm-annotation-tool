@@ -5,12 +5,6 @@ import sys
 import traceback
 import os
 import numpy as np
-import matplotlib
-import pandas as pd
-from pandas import Series, DataFrame
-import math
-import scipy.signal
-import shutil
 import cv2
 from qimage2ndarray import array2qimage
 
@@ -21,21 +15,11 @@ from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDia
 from PyQt5.QtGui import QPixmap, QImage, QColor
 from PyQt5.QtCore import Qt, QRectF
 
-matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-
-plt.ion()
-import matplotlib.patches as patches
 from ui import datmant_ui
 import configparser
 import time
 import datetime
-import pickle
 import subprocess
-
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
 # Overall constants
 PUBLISHER = "AlphaControlLab"
@@ -58,6 +42,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Annotation modes
     ANNOTATION_MODES_BUTTON_TEXT = {0: "Mode [Marking defects]", 1: "Mode [Marking mask]"}
     ANNOTATION_MODES_BUTTON_COLORS = {0: "blue", 1: "red"}
+
+    # Mask file extension. If it changes in the future, it is easier to swap it here
+    MASK_FILE_EXTENSION_PATTERN = ".mask.png"
 
     # Config file
     config_path = None  # Path to config file
@@ -292,7 +279,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Load the mask as well
             try:
-                img_m = cv2.imread(img_path + ".cut.mask.png", cv2.IMREAD_GRAYSCALE)
+                img_m = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
 
                 # Should we process the mask?
                 if self.actionProcess_original_mask.isChecked():

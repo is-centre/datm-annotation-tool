@@ -253,34 +253,38 @@ class QtImageAnnotator(QGraphicsView):
 
     def wheelEvent(self, event):
 
-        self.redraw_cursor()
+        if self.hasImage():
 
-        # Depending on whether control is pressed, set brush diameter accordingly
-        if QApplication.keyboardModifiers() & Qt.ControlModifier:
-            change = 1 if event.angleDelta().y() > 0 else -1
-            self.update_brush_diameter(change)
             self.redraw_cursor()
-            self.mouseWheelRotated.emit(change)
-        else:
-            QGraphicsView.wheelEvent(self, event)
+
+            # Depending on whether control is pressed, set brush diameter accordingly
+            if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                change = 1 if event.angleDelta().y() > 0 else -1
+                self.update_brush_diameter(change)
+                self.redraw_cursor()
+                self.mouseWheelRotated.emit(change)
+            else:
+                QGraphicsView.wheelEvent(self, event)
 
     def mouseMoveEvent(self, event):
 
-        self.update_cursor_location(event)
+        if self.hasImage():
 
-        # Support for panning
-        if event.buttons() == Qt.MiddleButton:
-            offset = self.__prevMousePos - event.pos()
-            self.__prevMousePos = event.pos()
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + offset.y())
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + offset.x())
+            self.update_cursor_location(event)
 
-        # Filling in the markers
-        if event.buttons() == Qt.LeftButton:
-            self.drawMarkerLine(event)
+            # Support for panning
+            if event.buttons() == Qt.MiddleButton:
+                offset = self.__prevMousePos - event.pos()
+                self.__prevMousePos = event.pos()
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() + offset.y())
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + offset.x())
 
-        # Store cursor location separately; needed for certain operations (like fill)
-        self.lastCursorLocation = self.mapToScene(event.pos())
+            # Filling in the markers
+            if event.buttons() == Qt.LeftButton:
+                self.drawMarkerLine(event)
+
+            # Store cursor location separately; needed for certain operations (like fill)
+            self.lastCursorLocation = self.mapToScene(event.pos())
 
         QGraphicsView.mouseMoveEvent(self, event)
 
@@ -348,88 +352,97 @@ class QtImageAnnotator(QGraphicsView):
 
     # Keypress event handler
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_F:
-            try:
-                self.viewport().setCursor(Qt.BusyCursor)
-                self.fillArea()
-            except:
-                print("Cannot fill region")
-            self.viewport().setCursor(Qt.ArrowCursor)
 
-        if event.key() == Qt.Key_Z:
-            if QApplication.keyboardModifiers() & Qt.ControlModifier:
-                if (len(self._overlay_stack) > 0):
-                    self.mask_pixmap = self._overlay_stack.pop()
-                    self._overlayHandle.setPixmap(self.mask_pixmap)
-                    self.updateViewer()
+        if self.hasImage():
+            if event.key() == Qt.Key_F:
+                try:
+                    self.viewport().setCursor(Qt.BusyCursor)
+                    self.fillArea()
+                except:
+                    print("Cannot fill region")
+                self.viewport().setCursor(Qt.ArrowCursor)
+
+            if event.key() == Qt.Key_Z:
+                if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                    if (len(self._overlay_stack) > 0):
+                        self.mask_pixmap = self._overlay_stack.pop()
+                        self._overlayHandle.setPixmap(self.mask_pixmap)
+                        self.updateViewer()
+
+        QGraphicsView.keyPressEvent(self, event)
 
     def mousePressEvent(self, event):
-        """ Start drawing, panning with mouse, or zooming in
-        """
-        scenePos = self.mapToScene(event.pos())
-        if event.button() == Qt.LeftButton:
 
-            self._overlay_stack.append(self.mask_pixmap.copy())
+        if self.hasImage():
+            """ Start drawing, panning with mouse, or zooming in
+            """
+            scenePos = self.mapToScene(event.pos())
+            if event.button() == Qt.LeftButton:
 
-            # If SHIFT is held, draw a line
-            if QApplication.keyboardModifiers() & Qt.ShiftModifier:
-                self.drawMarkerLine(event)
+                self._overlay_stack.append(self.mask_pixmap.copy())
 
-            # If CONTROL is held, erase
-            if QApplication.keyboardModifiers() & Qt.ControlModifier:
-                self.current_painting_mode = self.MODE_ERASE
-            else:
-                self.current_painting_mode = self.MODE_PAINT
+                # If SHIFT is held, draw a line
+                if QApplication.keyboardModifiers() & Qt.ShiftModifier:
+                    self.drawMarkerLine(event)
 
-            # If the user just clicks, add a marker
-            self.fillMarker(event)
+                # If CONTROL is held, erase
+                if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                    self.current_painting_mode = self.MODE_ERASE
+                else:
+                    self.current_painting_mode = self.MODE_PAINT
 
-            self.leftMouseButtonPressed.emit(scenePos.x(), scenePos.y())
-        elif event.button() == Qt.MiddleButton:
-            if self.canPan:
-                self.__prevMousePos = event.pos()
-                self.viewport().setCursor(Qt.ClosedHandCursor)
-            self._cursorHandle.hide()
-            self.middleMouseButtonPressed.emit(scenePos.x(), scenePos.y())
-        elif event.button() == Qt.RightButton:
-            if self.canZoom:
-                self.setDragMode(QGraphicsView.RubberBandDrag)
-            self._cursorHandle.hide()
-            self.rightMouseButtonPressed.emit(scenePos.x(), scenePos.y())
+                # If the user just clicks, add a marker
+                self.fillMarker(event)
+
+                self.leftMouseButtonPressed.emit(scenePos.x(), scenePos.y())
+            elif event.button() == Qt.MiddleButton:
+                if self.canPan:
+                    self.__prevMousePos = event.pos()
+                    self.viewport().setCursor(Qt.ClosedHandCursor)
+                self._cursorHandle.hide()
+                self.middleMouseButtonPressed.emit(scenePos.x(), scenePos.y())
+            elif event.button() == Qt.RightButton:
+                if self.canZoom:
+                    self.setDragMode(QGraphicsView.RubberBandDrag)
+                self._cursorHandle.hide()
+                self.rightMouseButtonPressed.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event):
         """ Stop mouse pan or zoom mode (apply zoom if valid).
         """
+        if self.hasImage():
+            QGraphicsView.mouseReleaseEvent(self, event)
+            scenePos = self.mapToScene(event.pos())
+            if event.button() == Qt.MiddleButton:
+                self.viewport().setCursor(Qt.ArrowCursor)
+                self._cursorHandle.show()
+                self.middleMouseButtonReleased.emit(scenePos.x(), scenePos.y())
+            elif event.button() == Qt.RightButton:
+                if self.canZoom:
+                    viewBBox = self.zoomStack[-1] if len(self.zoomStack) else self.sceneRect()
+                    selectionBBox = self.scene.selectionArea().boundingRect().intersected(viewBBox)
+                    self.scene.setSelectionArea(QPainterPath())  # Clear current selection area.
+                    if selectionBBox.isValid() and (selectionBBox != viewBBox):
+                        self.zoomStack.append(selectionBBox)
+                        self.updateViewer()
+                self.setDragMode(QGraphicsView.NoDrag)
+                self._cursorHandle.show()
+                self.rightMouseButtonReleased.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mouseReleaseEvent(self, event)
-        scenePos = self.mapToScene(event.pos())
-        if event.button() == Qt.MiddleButton:
-            self.viewport().setCursor(Qt.ArrowCursor)
-            self._cursorHandle.show()
-            self.middleMouseButtonReleased.emit(scenePos.x(), scenePos.y())
-        elif event.button() == Qt.RightButton:
-            if self.canZoom:
-                viewBBox = self.zoomStack[-1] if len(self.zoomStack) else self.sceneRect()
-                selectionBBox = self.scene.selectionArea().boundingRect().intersected(viewBBox)
-                self.scene.setSelectionArea(QPainterPath())  # Clear current selection area.
-                if selectionBBox.isValid() and (selectionBBox != viewBBox):
-                    self.zoomStack.append(selectionBBox)
-                    self.updateViewer()
-            self.setDragMode(QGraphicsView.NoDrag)
-            self._cursorHandle.show()
-            self.rightMouseButtonReleased.emit(scenePos.x(), scenePos.y())
 
     def mouseDoubleClickEvent(self, event):
         """ Show entire image.
         """
-        scenePos = self.mapToScene(event.pos())
-        if event.button() == Qt.MiddleButton:
-            self.middleMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
-        elif event.button() == Qt.RightButton:
-            if self.canZoom:
-                self.zoomStack = []  # Clear zoom stack.
-                self.updateViewer()
-            self.rightMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
+        if self.hasImage():
+            scenePos = self.mapToScene(event.pos())
+            if event.button() == Qt.MiddleButton:
+                self.middleMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
+            elif event.button() == Qt.RightButton:
+                if self.canZoom:
+                    self.zoomStack = []  # Clear zoom stack.
+                    self.updateViewer()
+                self.rightMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mouseDoubleClickEvent(self, event)
 
     # Export current mask WITHOUT alpha channel (mask types are determined by colors, not by alpha anyway)
