@@ -280,6 +280,18 @@
     </item>
     <item>
      <widget class="QGroupBox" name="gbApplicationLog">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>16777215</width>
+        <height>150</height>
+       </size>
+      </property>
       <property name="font">
        <font>
         <weight>75</weight>
@@ -329,7 +341,14 @@
     <addaction name="separator"/>
     <addaction name="actionLog"/>
    </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+    <addaction name="actionProcess_original_mask"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
    <addaction name="menuView"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -373,6 +392,14 @@
    </property>
    <property name="text">
     <string>Reload original mask</string>
+   </property>
+  </action>
+  <action name="actionProcess_original_mask">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Process original mask</string>
    </property>
   </action>
  </widget>

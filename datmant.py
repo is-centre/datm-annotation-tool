@@ -14,6 +14,8 @@ import shutil
 import cv2
 from qimage2ndarray import array2qimage
 
+from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
+
 # Specific UI features
 from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog
 from PyQt5.QtGui import QPixmap, QImage, QColor
@@ -62,24 +64,17 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     config_data = None  # The actual configuration
     CONFIG_NAME = "datmant_config.ini"  # Name of the config file
 
-    # Embedded pyplot graph
-    figure_view = None
-    canvas_view = None
-    toolbar_view = None
-    axes_view = None
-
     has_image = None
     img_shape = None
+
+    # Flag which tells whether images were found in CWD
+    dir_has_images = False
 
     # Drawing mode
     annotation_mode = 0 # 0 for marking defects, 1 for updating mask
 
     # Annotator
     annotator = None
-
-    # We should always know where the cursor is
-    curx = 0
-    cury = 0
 
     # Brush
     brush = None
@@ -120,10 +115,34 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Config file storage: config file stored in user directory
         self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
 
+        # Update button states
+        self.update_button_states()
+
+        # Initialize everything
+        self.initialize_brush_slider()
+
+        # Log this anyway
+        self.log("Application started")
+
+        # Style the mode button properly
+        self.annotation_mode_default()
+
+        # Initialization completed
+        self.initializing = False
+
+        # Set up the status bar
+        self.status_bar_message("ready")
+
+    # Set up those UI elements that depend on config
+    def UI_config(self):
+        # Check whether log should be shown or not
+        self.check_show_log()
+
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
         self.actionLoad_marked_image.triggered.connect(self.load_image)
+        self.actionProcess_original_mask.triggered.connect(self.process_mask)
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
         # Button assignment
@@ -138,26 +157,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # NB! We depend on this firing on index change, so we remove manual load_image elsewhere
         self.lstImages.currentIndexChanged.connect(self.load_image)
 
-        # Update button states
-        self.update_button_states()
-
-        # Initialize everything
-        self.initialize_brush_slider()
-
-        # Check whether log should be shown or not
-        self.check_show_log()
-
-        # Log this anyway
-        self.log("Application started")
-
-        # Style the mode button properly
-        self.annotation_mode_default()
-
-        # Initialization completed
-        self.initializing = False
-
-        # Set up the status bar
-        self.status_bar_message("ready")
+        # Try to load an image now that everything is initialized
+        self.load_image()
 
     def initialize_brush_slider(self):
         self.sldBrushDiameter.setMinimum(BRUSH_DIAMETER_MIN)
@@ -249,10 +250,22 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             return update_mask, defect_mask
 
+    def process_mask(self):
+
+        # Check the state of the checkbox and save it
+        proc_mask = '0'
+        if self.actionProcess_original_mask.isChecked():
+            proc_mask = '1'
+        self.config_data['MenuOptions']['ProcessMask'] == proc_mask
+        self.config_save()
+
+        # Now, reload the image
+        self.load_image()
+
     # Loads the image
     def load_image(self):
 
-        if not self.initializing:
+        if not self.initializing and self.dir_has_images:
             self.status_bar_message("loading")
 
             # Process events
@@ -280,6 +293,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Load the mask as well
             try:
                 img_m = cv2.imread(img_path + ".cut.mask.png", cv2.IMREAD_GRAYSCALE)
+
+                # Should we process the mask?
+                if self.actionProcess_original_mask.isChecked():
+                    img_m = get_sqround_mask(img_m)
             except:
                 self.log("No mask is found for the image. The mask will be empty")
                 img_m = np.zeros((h,w,1), dtype=np.uint8)
@@ -426,6 +443,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             else:
                 self.actionLog.setChecked(False)
 
+            if self.config_data['MenuOptions']['ProcessMask'] == '1':
+                self.actionProcess_original_mask.setChecked(True)
+            else:
+                self.actionProcess_original_mask.setChecked(False)
+
             # Get file list, if a URL was saved
             directory = self.config_data['MenuOptions']['ImageDirectory']
             if directory != "":
@@ -453,6 +475,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # The defaults
         config_defaults['MenuOptions'] = \
             {'ShowLog': '0',
+             'ProcessMask': '1',
              'ImageDirectory': ''}
 
         return config_defaults
@@ -549,6 +572,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                     file_cnt += 1
                     self.lstImages.addItem(os.path.splitext(file_name)[0])
 
+            if file_cnt > 0:
+                self.dir_has_images = True
+            else:
+                self.dir_has_images = False
+
             self.log("Found " + str(file_cnt) + " images in the working directory")
 
     def update_button_states(self):
@@ -565,6 +593,13 @@ def main():
 
     # Now we have to load the app configuration file
     dialog.config_load()
+
+    # After loading the config file, we need to set up relevant UI elements
+    dialog.UI_config()
+    dialog.app.processEvents()
+
+    # Now we also save the config file
+    dialog.config_save()
 
     # And proceed with execution
     app.exec_()
