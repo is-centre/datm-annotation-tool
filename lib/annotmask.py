@@ -22,7 +22,9 @@ def get_sqround_mask(mask):
     rdmask = cv2.circle(rdmask, MID_POINT, 1500, (255), -1)
     cv2.drawContours(rdmask, [box], 0, (255, 255, 255), -1)
 
-    return rdmask
+    finalmask = cv2.bitwise_and(mask, rdmask)
+
+    return finalmask
 
 def newbox(box):
     rate = 0.35

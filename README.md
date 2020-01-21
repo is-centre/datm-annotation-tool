@@ -80,10 +80,15 @@ At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet
 * To zoom out, **double right click**.
 * To pan the image while zoomed-in, **middle click and drag**.
 
-Note that **companion files will be automatically saved for each orthoframe only** once you choose another orthoframe from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image* or choose **File->Save current annotations** from the menu. The application also warns you when navigating files whether you have reached either end of the folder.
+Note that **companion files will be automatically saved for each orthoframe only** once you choose another orthoframe from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image* or choose **File→Save current annotations** from the menu. The application also warns you when navigating files whether you have reached either end of the folder.
 
-The **View->Load marked image** checkbox allows to load either pre-annotated reference images (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes.
+What concerns different views and mask generation, you have the options described below.
 
-The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is narrow. In case of questions, please consult the team responsible for developing this tool.
+**NB! Changing these options will result in you losing any current defect annotations unless you save them beforehand, so if you want to keep the annotations of defects, you need to save them using File→Save current annotations**
+
+* The **View→Load marked image** checkbox allows to load either pre-annotated reference images (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes.
+* The **Edit→Process original mask** checkbox applies preprocessing to the original mask which can speed up the mask correction workflow. Note **you will only see the original/preprocessed mask** if the corrected mask `FILENAME.cut.mask_v2.png` is **not** found in the folder. If you would like to restart the mask correction process, please manually delete the corresponding file taking note of the current image `FILENAME`.
+
+The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is slightly different from the current approach. In case of questions, please consult the team responsible for developing this tool.
 
 ![LaunchWindow](.github/img/datmant_usage.gif)
