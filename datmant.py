@@ -33,6 +33,7 @@ BRUSH_DIAMETER_DEFAULT = 50
 # Colors
 MARK_COLOR_MASK = QColor(255,0,0,99)
 MARK_COLOR_DEFECT = QColor(0,0,255,99)
+HELPER_COLOR = QColor(0,0,0,99)
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
@@ -40,8 +41,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     APP_STATUS_STATES = {"ready": "Ready.", "loading": "Loading image..."}
 
     # Annotation modes
-    ANNOTATION_MODES_BUTTON_TEXT = {0: "Mode [Marking defects]", 1: "Mode [Marking mask]"}
-    ANNOTATION_MODES_BUTTON_COLORS = {0: "blue", 1: "red"}
+    ANNOTATION_MODE_MARKING_DEFECTS = 0
+    ANNOTATION_MODE_MARKING_MASK = 1
+
+    ANNOTATION_MODES_BUTTON_TEXT = {ANNOTATION_MODE_MARKING_DEFECTS: "Mode [Marking defects]",
+                                    ANNOTATION_MODE_MARKING_MASK: "Mode [Marking mask]"}
+    ANNOTATION_MODES_BUTTON_COLORS = {ANNOTATION_MODE_MARKING_DEFECTS: "blue",
+                                      ANNOTATION_MODE_MARKING_MASK: "red"}
 
     # Mask file extension. If it changes in the future, it is easier to swap it here
     MASK_FILE_EXTENSION_PATTERN = ".mask.png"
@@ -67,17 +73,16 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     brush = None
     brush_diameter = BRUSH_DIAMETER_DEFAULT
 
-    current_paint = None
+    current_paint = None  # Paint of the brush
 
-    # Stored marks
-    defect_marks = None
-    mask_marks = None
+    # Immutable items
+    current_image = None  # Original image
+    current_mask = None  # Original mask
+    current_helper = None  # Helper mask
 
-    # Stored background
-    canvas_bg = None
-
-    # Stored original mask
-    current_mask = None
+    # User-updatable items
+    current_defects = None  # Defects mask
+    current_updated_mask = None  # Updated mask
 
     # Image name
     current_img = None
@@ -185,8 +190,20 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.annotator.update_brush_diameter(0)
             self.annotator.brush_fill_color = self.current_paint
 
+    def update_mask_from_current_mode(self):
+        the_mask = self.get_updated_mask()
+        if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            self.current_defects = the_mask
+        else:
+            self.current_updated_mask = the_mask
+
     # Change annotation mode
     def annotation_mode_switch(self):
+
+        # Save the mask
+        self.update_mask_from_current_mode()
+
+        # Update the UI
         self.annotation_mode += 1
         if self.annotation_mode > 1:
             self.annotation_mode = 0
@@ -196,9 +213,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
                                    + self.ANNOTATION_MODES_BUTTON_COLORS[self.annotation_mode] + "}")
 
+        # Update the view
+        self.update_annotator_view()
+
     # Set default annotation mode
     def annotation_mode_default(self):
-        self.annotation_mode = 0
+        self.annotation_mode = self.ANNOTATION_MODE_MARKING_DEFECTS
         self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
         self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
@@ -216,26 +236,53 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         msg.exec()
 
     # Get both masks as separate numpy arrays
-    def get_updated_masks(self):
+    def get_updated_mask(self):
         if self.annotator._overlayHandle is not None:
 
-            # Get the overall mask
+            # Depending on the mode, fill the mask appropriately
             mask = self.annotator.export_ndarray_noalpha()
 
-            # And create empty masks
-            update_mask = 255*np.ones(self.img_shape, dtype=np.uint8)
-            defect_mask = np.zeros(self.img_shape, dtype=np.uint8)
+            # Marking defects
+            if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+                the_new_mask = np.zeros(self.img_shape, dtype=np.uint8)
+            # Or updating the road edge mask
+            else:
+                the_new_mask = 255 * np.ones(self.img_shape, dtype=np.uint8)
 
             # NB! This approach beats np.where: it is 4.3 times faster!
             reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
 
-            m1 = list(MARK_COLOR_MASK.getRgb())[:-1]
-            update_mask[(reds == m1[0]) & (greens == m1[1]) & (blues == m1[2])] = 0
+            if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+                m2 = list(MARK_COLOR_DEFECT.getRgb())[:-1]
+                the_new_mask[(reds == m2[0]) & (greens == m2[1]) & (blues == m2[2])] = 255
+            else:
+                m1 = list(MARK_COLOR_MASK.getRgb())[:-1]
+                the_new_mask[(reds == m1[0]) & (greens == m1[1]) & (blues == m1[2])] = 0
 
-            m2 = list(MARK_COLOR_DEFECT.getRgb())[:-1]
-            defect_mask[(reds == m2[0]) & (greens == m2[1]) & (blues == m2[2])] = 255
+            return the_new_mask
 
-            return update_mask, defect_mask
+    def update_annotator_view(self):
+        if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            h, w = self.current_image.rect().height(), self.current_image.rect().width()
+
+            helper = 255*np.zeros((h,w,4), dtype=np.uint8)
+            helper[self.current_helper == 0] = list(HELPER_COLOR.getRgb())
+
+            defects = np.zeros((h, w, 4), dtype=np.uint8)
+            defects[self.current_defects == 255] = list(MARK_COLOR_DEFECT.getRgb())
+
+            self.annotator.clearAndSetImageAndMask(self.current_image,
+                                                   array2qimage(defects),
+                                                   array2qimage(helper))
+        else:
+
+            # Remember, the mask must be inverted here, but saved properly
+            h, w = self.current_image.rect().height(), self.current_image.rect().width()
+            mask = 255 * np.zeros((h, w, 4), dtype=np.uint8)
+            mask[self.current_updated_mask == 0] = list(MARK_COLOR_MASK.getRgb())
+
+            self.annotator.clearAndSetImageAndMask(self.current_image,
+                                                   array2qimage(mask))
 
     def process_mask(self):
 
@@ -269,31 +316,26 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
 
-            # To test we load an image here
-            img = QImage(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
+            # Load the image
+            self.current_image = QImage(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
 
             # Shape of the image
-            h, w = img.rect().height(), img.rect().width()
+            h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
             self.img_shape = (h,w)
 
-            # Load the mask as well
+            # Load the mask and generate the "helper" mask
             try:
-                img_m = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
-
-                # Should we process the mask?
-                if self.actionProcess_original_mask.isChecked():
-                    img_m = get_sqround_mask(img_m)
+                self.current_mask = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
+                self.current_helper = get_sqround_mask(self.current_mask)
             except:
-                self.log("No mask is found for the image. The mask will be empty")
-                img_m = np.zeros((h,w,1), dtype=np.uint8)
-
-            # We need to create the empty pixmap and then add correct colors to it thus
-            # creating a blended image of the masks
-            img_b = np.zeros((h,w,4), dtype=np.uint8)
+                raise FileNotFoundError("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
 
             # Set also default annotation mode
             self.annotation_mode_default()
+
+            # Mask v2 just contains a copy of the default mask
+            img_m = self.current_mask.copy()
 
             # Add some useful information
             at_least_something = False
@@ -306,21 +348,24 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             else:
                 self.txtImageHasDefectMask.setText("NO")
 
-            img_b[img_m == 0] = list(MARK_COLOR_MASK.getRgb())
-
+            # No defect marks by default
+            img_d = np.zeros(self.img_shape, dtype=np.uint8)
             if os.path.isfile(img_path + ".defect.mask.png"):
                 # We need to open the mask
                 img_d = cv2.imread(img_path + ".defect.mask.png", cv2.IMREAD_GRAYSCALE)
                 # And blend in the colors of the overlay
-                img_b[img_d == 255] = list(MARK_COLOR_DEFECT.getRgb())
                 self.txtImageStatus.setText("PROCESSED, defect mask found in directory")
             elif at_least_something:
                 self.txtImageStatus.setText("SEEN BEFORE, but there is no defect mask")
             else:
                 self.txtImageStatus.setText("No info")
 
-            # Once all that is done, we need to convert the mask to a qimage and update the viewport
-            self.annotator.clearAndSetImageAndMask(img, array2qimage(img_b))
+            # Now we set up the mutable images. NB! They are not COPIES, but references here
+            self.current_defects = img_d
+            self.current_updated_mask = img_m
+
+            # Once all that is done, we need to update the actual image working area
+            self.update_annotator_view()
 
             self.status_bar_message("ready")
             self.log("Done loading image")
@@ -354,15 +399,18 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.lstImages.setCurrentIndex(cur_index + 1)
 
     def save_masks(self):
+
+        # Update the current mask
+        self.update_mask_from_current_mode()
+
         save_dir = self.txtImageDir.text()
         save_path_defects = save_dir + self.current_img + ".defect.mask.png"
         save_path_masks = save_dir + self.current_img + ".cut.mask_v2.png"
 
-        m1, m2 = self.get_updated_masks()
-        cv2.imwrite(save_path_defects, m2)
+        cv2.imwrite(save_path_defects, self.current_defects)
         self.log("Saved defect annotations for image " + self.current_img)
 
-        cv2.imwrite(save_path_masks, m1)
+        cv2.imwrite(save_path_masks, self.current_updated_mask)
         self.log("Saved updated mask for image " + self.current_img)
 
     # In-GUI console log
@@ -567,7 +615,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.log("Found " + str(file_cnt) + " images in the working directory")
 
     def update_button_states(self):
-        print("Not implemented")
+        print("No button states to update.")
 
 
 def main():

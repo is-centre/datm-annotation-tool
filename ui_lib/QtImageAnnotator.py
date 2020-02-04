@@ -41,6 +41,7 @@ class QtImageAnnotator(QGraphicsView):
 
         # Store a local handle to the scene's current image pixmap.
         self._pixmapHandle = None  # This holds the image
+        self._helperHandle = None # This holds the "helper" overlay which is not directly manipulated by the user
         self._overlayHandle = None  # This is the overlay over which we are painting
         self._cursorHandle = None  # This is the cursor that appears to assist with brush size
 
@@ -126,16 +127,17 @@ class QtImageAnnotator(QGraphicsView):
             return self._pixmapHandle.pixmap().toImage()
         return None
 
-    def clearAndSetImageAndMask(self, image, mask):
+    def clearAndSetImageAndMask(self, image, mask, helper=None):
         # Clear the scene
         self.scene.clear()
 
         # Clear handles
         self._pixmapHandle = None
+        self._helperHandle = None
         self._overlayHandle = None
         self._overlayHandle = None
 
-        # Clear stack
+        # Clear UNDO stack
         self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
 
         # First we just set the image
@@ -144,10 +146,22 @@ class QtImageAnnotator(QGraphicsView):
         elif type(image) is QImage:
             pixmap = QPixmap.fromImage(image)
         else:
-            raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
+            raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
 
         self._pixmapHandle = self.scene.addPixmap(pixmap)
         self.setSceneRect(QRectF(pixmap.rect()))
+
+        # Now we add the helper, if present
+        if helper is not None:
+            if type(helper) is QPixmap:
+                pixmap = helper
+            elif type(image) is QImage:
+                pixmap = QPixmap.fromImage(helper)
+            else:
+                raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
+
+            # Add the helper layer
+            self._helperHandle = self.scene.addPixmap(pixmap)
 
         # Now we change the mask as well
         if type(mask) is QPixmap:
@@ -155,7 +169,7 @@ class QtImageAnnotator(QGraphicsView):
         elif type(mask) is QImage:
             pixmap = QPixmap.fromImage(mask)
         else:
-            raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
+            raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
 
         self.mask_pixmap = pixmap
         self._overlayHandle = self.scene.addPixmap(self.mask_pixmap)

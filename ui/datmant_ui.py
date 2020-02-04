@@ -205,6 +205,7 @@ class Ui_DATMantMainWindow(object):
         self.actionReload_original_mask.setObjectName("actionReload_original_mask")
         self.actionProcess_original_mask = QtWidgets.QAction(DATMantMainWindow)
         self.actionProcess_original_mask.setCheckable(True)
+        self.actionProcess_original_mask.setEnabled(False)
         self.actionProcess_original_mask.setObjectName("actionProcess_original_mask")
         self.menuFile.addAction(self.actionSave_current_annotations)
         self.menuFile.addAction(self.actionReload_original_mask)
