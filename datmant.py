@@ -23,7 +23,8 @@ import subprocess
 
 # Overall constants
 PUBLISHER = "AlphaControlLab"
-VERSION = "1.0"
+APP_TITLE = "DATM Annotation Tool"
+APP_VERSION = "0.9-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 1
@@ -623,6 +624,7 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setWindowIcon(QtGui.QIcon('res/A.ico'))
     dialog = DATMantGUI()
+    dialog.setWindowTitle(APP_TITLE + " - " + APP_VERSION) # Window title
     dialog.app = app  # Store the reference
     dialog.show()
 
