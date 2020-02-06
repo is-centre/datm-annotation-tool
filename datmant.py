@@ -24,7 +24,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.9-beta"
+APP_VERSION = "0.95-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 1
