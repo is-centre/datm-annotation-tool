@@ -27,9 +27,9 @@ APP_TITLE = "DATM Annotation Tool"
 APP_VERSION = "0.95-beta"
 
 # Some configs
-BRUSH_DIAMETER_MIN = 1
+BRUSH_DIAMETER_MIN = 40
 BRUSH_DIAMETER_MAX = 500
-BRUSH_DIAMETER_DEFAULT = 50
+BRUSH_DIAMETER_DEFAULT = 40
 
 # Colors
 MARK_COLOR_MASK = QColor(255,0,0,99)
@@ -103,6 +103,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         from ui_lib.QtImageAnnotator import QtImageAnnotator
         self.annotator = QtImageAnnotator()
+
+        # Need to synchronize brush sizes with the annotator
+        self.annotator.MIN_BRUSH_DIAMETER = BRUSH_DIAMETER_MIN
+        self.annotator.MAX_BRUSH_DIAMETER = BRUSH_DIAMETER_MAX
+        self.annotator.brush_diameter = BRUSH_DIAMETER_DEFAULT
+
         self.figThinFigure.addWidget(self.annotator)
 
         # Config file storage: config file stored in user directory
