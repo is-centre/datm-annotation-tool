@@ -24,7 +24,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.95-beta"
+APP_VERSION = "0.95.1-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -163,7 +163,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.sldBrushDiameter.setMinimum(BRUSH_DIAMETER_MIN)
         self.sldBrushDiameter.setMaximum(BRUSH_DIAMETER_MAX)
         self.sldBrushDiameter.setValue(BRUSH_DIAMETER_DEFAULT)
-        self.sldBrushDiameter.sliderMoved.connect(self.brush_slider_update)
+        self.sldBrushDiameter.valueChanged.connect(self.brush_slider_update)
         self.brush_slider_update()
 
     def brush_slider_update(self):
@@ -175,7 +175,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     def accept_brush_diameter_change(self, change):
 
         # Need to disconnect slider while changing value
-        self.sldBrushDiameter.sliderMoved.disconnect()
+        self.sldBrushDiameter.valueChanged.disconnect()
 
         new_diameter = int(self.sldBrushDiameter.value()+change)
         new_diameter = BRUSH_DIAMETER_MIN if new_diameter < BRUSH_DIAMETER_MIN else new_diameter
@@ -184,7 +184,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.txtBrushDiameter.setText(str(new_diameter))
 
         # Reconnect to slider move interrupt
-        self.sldBrushDiameter.sliderMoved.connect(self.brush_slider_update)
+        self.sldBrushDiameter.valueChanged.connect(self.brush_slider_update)
 
     # Clear currently used paint completely
     def clear_all_annotations(self):
