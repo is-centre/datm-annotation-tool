@@ -39,6 +39,8 @@ The first thing to do, is to browse to the folder that contains the orthoframes 
 * `FILENAME.marked.jpg`: this file should contain defect markings painted over pavement distress. The Python script for creating these files is available separately. For testing purposes, you can simple create these files by adding `.marked` to the end of the file name before the extension.
 * `FILENAME.mask.png`: the initial mask of the paved road part of the image. If it does not exist, an empty mask will be used.
 
+* `FILENAME.predicted_defects.png` (optional): automatically generated defect masks to be manually processed (if available).
+
 Also note that the tool will produce the following files for every processed orthoframe:
 
 * `FILENAME.cut.mask_v2.png`: The manually corrected mask (usually some manual correction is required). If no correction is made to the original mask, this file will contain a copy of the original mask.
@@ -66,7 +68,7 @@ It is assumed that a typical computer mouse with three buttons and a scroll whee
 
 * To change the painting mode (defects or mask in-painting), use the button on the bottom of the UI. The color of the button also hints at the colors with which defects and non-paved areas are marked: blue and red, respectively.
 * To paint over a defect or unpaved area (depending on the mode), **left click and drag.****
-* To erase any paint (any annotation is erased independent on the mode!), use **control-left click**.
+* To erase any paint (any annotation is erased independent on the mode!), either switch to **delete mode** by pressing **[D]** on the keyboard, or use **control-left click** in normal painting mode. Either way, you will see an X painted over the brush cursor that symbolizes that you have entered delete mode.
 * To change brush size, **rotate the mouse wheel** while **holding control**. You can also change the size of the brush using the corresponding slider in the UI.
 * To create *line segments*, **left click** once at the starting point and then **shift-left click** at the end point.
 * To fill bounded areas with selected brush color, position the brush over the area and press **[F]** on the keyboard.
@@ -88,6 +90,7 @@ What concerns different views and mask generation, you have the options describe
 
 * The **View→Load marked image** checkbox allows to load either pre-annotated reference images (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes.
 * The **Edit→Process original mask** checkbox applies preprocessing to the original mask which can speed up the mask correction workflow. Note **you will only see the original/preprocessed mask** if the corrected mask `FILENAME.cut.mask_v2.png` is **not** found in the folder. If you would like to restart the mask correction process, please manually delete the corresponding file taking note of the current image `FILENAME`.
+* The **Edit→Reload AUTO defect mask** menu entry reloads the automatically generated defect mask if it is present in the working directory and the annotation mode is set to defect annotation.
 
 The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is slightly different from the current approach. In case of questions, please consult the team responsible for developing this tool.
 

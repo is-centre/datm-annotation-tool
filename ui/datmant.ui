@@ -346,6 +346,7 @@
      <string>Edit</string>
     </property>
     <addaction name="actionProcess_original_mask"/>
+    <addaction name="actionAIMask"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -403,6 +404,11 @@
    </property>
    <property name="text">
     <string>Process original mask</string>
+   </property>
+  </action>
+  <action name="actionAIMask">
+   <property name="text">
+    <string>Reload AUTO defect mask</string>
    </property>
   </action>
  </widget>

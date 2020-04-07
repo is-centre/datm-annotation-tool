@@ -24,7 +24,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.95.1-beta"
+APP_VERSION = "0.96-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -65,7 +65,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     dir_has_images = False
 
     # Drawing mode
-    annotation_mode = 0 # 0 for marking defects, 1 for updating mask
+    annotation_mode = ANNOTATION_MODE_MARKING_DEFECTS
 
     # Annotator
     annotator = None
@@ -143,6 +143,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.actionLoad_marked_image.triggered.connect(self.load_image)
         self.actionProcess_original_mask.triggered.connect(self.process_mask)
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
+
+        # Reload AI-generated mask, if present in the directory
+        self.actionAIMask.triggered.connect(self.load_AI_mask)
 
         # Button assignment
         self.annotator.mouseWheelRotated.connect(self.accept_brush_diameter_change)
@@ -361,11 +364,20 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                 # We need to open the mask
                 img_d = cv2.imread(img_path + ".defect.mask.png", cv2.IMREAD_GRAYSCALE)
                 # And blend in the colors of the overlay
-                self.txtImageStatus.setText("PROCESSED, defect mask found in directory")
+                self.txtImageStatus.setText("MANUALLY PROCESSED, defect mask found in directory")
+            elif os.path.isfile(img_path + ".predicted_defects.png"):
+                img_d = cv2.imread(img_path + ".predicted_defects.png", cv2.IMREAD_GRAYSCALE)
+                self.txtImageStatus.setText("AUTO PROCESSED, defect mask found in directory")
             elif at_least_something:
                 self.txtImageStatus.setText("SEEN BEFORE, but there is no defect mask")
             else:
                 self.txtImageStatus.setText("No info")
+
+            # Update a button state
+            if os.path.isfile(img_path + ".predicted_defects.png"):
+                self.actionAIMask.setEnabled(True)
+            else:
+                self.actionAIMask.setEnabled(False)
 
             # Now we set up the mutable images. NB! They are not COPIES, but references here
             self.current_defects = img_d
@@ -376,6 +388,22 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.status_bar_message("ready")
             self.log("Done loading image")
+
+    def load_AI_mask(self):
+        # Additional check just in case
+        img_name = self.lstImages.currentText()
+        img_name_no_ext = img_name.split(".")[0]
+        img_path = self.txtImageDir.text() + os.sep + img_name_no_ext
+        if os.path.isfile(img_path + ".predicted_defects.png") and \
+                self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            img_d = cv2.imread(img_path + ".predicted_defects.png", cv2.IMREAD_GRAYSCALE)
+            self.current_defects = img_d
+            self.update_annotator_view()
+            self.log("Replaced the current defect mask with the automatically generated one.")
+        else:
+            self.log("Cannot load the auto-generated image: either file missing or wrong mode selected.")
+            # For now also print it to CMD, maybe remove later
+            print("Cannot load the auto-generated image: either file missing or wrong mode selected.")
 
     def load_prev_image(self):
         total_items = self.lstImages.count()

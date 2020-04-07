@@ -44,6 +44,9 @@ class QtImageAnnotator(QGraphicsView):
         self._helperHandle = None # This holds the "helper" overlay which is not directly manipulated by the user
         self._overlayHandle = None  # This is the overlay over which we are painting
         self._cursorHandle = None  # This is the cursor that appears to assist with brush size
+        self._deleteCrossHandles = None # For showing that we've activated delete mode
+
+        self._lastCursorCoords = None # Latest coordinates of the cursor, need in some cursor overlay update operations
 
         self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
 
@@ -65,6 +68,7 @@ class QtImageAnnotator(QGraphicsView):
         self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
         self.MODE_ERASE = QPainter.CompositionMode_Clear
         self.current_painting_mode = self.MODE_PAINT
+        self.global_erase_override = False
 
         # Make mouse events accessible
         self.setMouseTracking(True)
@@ -177,6 +181,15 @@ class QtImageAnnotator(QGraphicsView):
         # Add brush cursor to top layer
         self._cursorHandle = self.scene.addEllipse(0, 0, self.brush_diameter, self.brush_diameter)
 
+        # Add also X to the cursor for "delete" operation, and hide it by default only showing it when the
+        # either the global drawing mode is set to ERASE or when CTRL is held while drawing
+        self._deleteCrossHandles = (self.scene.addLine(0, 0, self.brush_diameter, self.brush_diameter),
+                                    self.scene.addLine(0, self.brush_diameter, self.brush_diameter, 0))
+
+        if self.current_painting_mode is not self.MODE_ERASE:
+            self._deleteCrossHandles[0].hide()
+            self._deleteCrossHandles[1].hide()
+
         self.updateViewer()
 
     def setImage(self, image):
@@ -204,6 +217,15 @@ class QtImageAnnotator(QGraphicsView):
 
         # Add brush cursor to top layer
         self._cursorHandle = self.scene.addEllipse(0,0,self.brush_diameter,self.brush_diameter)
+
+        # Add also X to the cursor for "delete" operation, and hide it by default only showing it when the
+        # either the global drawing mode is set to ERASE or when CTRL is held while drawing
+        self._deleteCrossHandles = (self.scene.addLine(0, 0, self.brush_diameter, self.brush_diameter),
+                                    self.scene.addLine(0, self.brush_diameter, self.brush_diameter, 0))
+
+        if self.current_painting_mode is not self.MODE_ERASE:
+            self._deleteCrossHandles[0].hide()
+            self._deleteCrossHandles[1].hide()
 
         self.updateViewer()
 
@@ -248,8 +270,24 @@ class QtImageAnnotator(QGraphicsView):
 
         self.brush_diameter = val
 
+        if self._lastCursorCoords is not None:
+            x, y = self._lastCursorCoords
+        else:
+            x, y = 0, 0
+
         if self._cursorHandle is not None:
+            self._cursorHandle.setPos(x - self.brush_diameter / 2, y - self.brush_diameter / 2)
             self._cursorHandle.setRect(0, 0, self.brush_diameter, self.brush_diameter)
+
+        if self._deleteCrossHandles is not None:
+            self._deleteCrossHandles[0].setLine(x - self.brush_diameter / (2 * np.sqrt(2)),
+                                                y - self.brush_diameter / (2 * np.sqrt(2)),
+                                                x + self.brush_diameter / (2 * np.sqrt(2)),
+                                                y + self.brush_diameter / (2 * np.sqrt(2)))
+            self._deleteCrossHandles[1].setLine(x - self.brush_diameter / (2 * np.sqrt(2)),
+                                                y + self.brush_diameter / (2 * np.sqrt(2)),
+                                                x + self.brush_diameter / (2 * np.sqrt(2)),
+                                                y - self.brush_diameter / (2 * np.sqrt(2)))
 
     def update_cursor_location(self, event):
         # There's a problem with this cursor that it's too big.
@@ -258,12 +296,29 @@ class QtImageAnnotator(QGraphicsView):
         scenePos = self.mapToScene(event.pos())
         x, y = scenePos.x(), scenePos.y()
 
+        # Store the coordinates for other operations to use
+        self._lastCursorCoords = (x,y)
+
         if self._cursorHandle is not None:
             self._cursorHandle.setPos(x - self.brush_diameter/2, y - self.brush_diameter/2)
+
+        if self._deleteCrossHandles is not None:
+            self._deleteCrossHandles[0].setLine(x - self.brush_diameter / (2 * np.sqrt(2)),
+                                                y - self.brush_diameter / (2 * np.sqrt(2)),
+                                                x + self.brush_diameter / (2 * np.sqrt(2)),
+                                                y + self.brush_diameter / (2 * np.sqrt(2)))
+            self._deleteCrossHandles[1].setLine(x - self.brush_diameter / (2 * np.sqrt(2)),
+                                                y + self.brush_diameter / (2 * np.sqrt(2)),
+                                                x + self.brush_diameter / (2 * np.sqrt(2)),
+                                                y - self.brush_diameter / (2 * np.sqrt(2)))
 
     def redraw_cursor(self):
         if self._cursorHandle is not None:
             self._cursorHandle.update()
+
+        if self._deleteCrossHandles is not None:
+            self._deleteCrossHandles[0].update()
+            self._deleteCrossHandles[1].update()
 
     def wheelEvent(self, event):
 
@@ -376,12 +431,40 @@ class QtImageAnnotator(QGraphicsView):
                     print("Cannot fill region")
                 self.viewport().setCursor(Qt.ArrowCursor)
 
+            # Erase mode enable/disable
+            if event.key() == Qt.Key_D:
+                self.global_erase_override = not self.global_erase_override
+                if self.global_erase_override:
+                    self.current_painting_mode = self.MODE_ERASE
+                    self._deleteCrossHandles[0].show()
+                    self._deleteCrossHandles[1].show()
+                else:
+                    self.current_painting_mode = self.MODE_PAINT
+                    self._deleteCrossHandles[0].hide()
+                    self._deleteCrossHandles[1].hide()
+
+            # Undo operations
             if event.key() == Qt.Key_Z:
                 if QApplication.keyboardModifiers() & Qt.ControlModifier:
                     if (len(self._overlay_stack) > 0):
                         self.mask_pixmap = self._overlay_stack.pop()
                         self._overlayHandle.setPixmap(self.mask_pixmap)
                         self.updateViewer()
+
+            # When CONTROL is pressed, show the delete cross
+            if event.key() == Qt.Key_Control and not self.global_erase_override:
+                self._deleteCrossHandles[0].show()
+                self._deleteCrossHandles[1].show()
+
+        QGraphicsView.keyPressEvent(self, event)
+
+    def keyReleaseEvent(self, event):
+
+        if self.hasImage():
+
+            if event.key() == Qt.Key_Control and not self.global_erase_override:
+                self._deleteCrossHandles[0].hide()
+                self._deleteCrossHandles[1].hide()
 
         QGraphicsView.keyPressEvent(self, event)
 
@@ -399,11 +482,12 @@ class QtImageAnnotator(QGraphicsView):
                 if QApplication.keyboardModifiers() & Qt.ShiftModifier:
                     self.drawMarkerLine(event)
 
-                # If CONTROL is held, erase
-                if QApplication.keyboardModifiers() & Qt.ControlModifier:
-                    self.current_painting_mode = self.MODE_ERASE
-                else:
-                    self.current_painting_mode = self.MODE_PAINT
+                # If CONTROL is held, erase, but only if global erase override is not enabled
+                if not self.global_erase_override:
+                    if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                        self.current_painting_mode = self.MODE_ERASE
+                    else:
+                        self.current_painting_mode = self.MODE_PAINT
 
                 # If the user just clicks, add a marker
                 self.fillMarker(event)
