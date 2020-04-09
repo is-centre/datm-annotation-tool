@@ -13,8 +13,8 @@ dependencies:
   - backcall=0.1.0=py37_0
   - blas=1.0=mkl
   - bleach=3.1.0=py37_0
-  - ca-certificates=2019.11.27=0
-  - certifi=2019.11.28=py37_0
+  - ca-certificates=2020.1.1=0
+  - certifi=2020.4.5.1=py37_0
   - cffi=1.12.3=py37h7a1dbc1_0
   - chardet=3.0.4=py37_1003
   - cloudpickle=1.2.2=py_0
@@ -27,6 +27,7 @@ dependencies:
   - entrypoints=0.3=py37_0
   - freetype=2.9.1=ha9979f8_1
   - future=0.17.1=py37_0
+  - geos=3.8.0=h33f27b4_0
   - hdf5=1.8.20=hac2f561_1
   - icc_rt=2019.0.0=h0cc432a_1
   - icu=58.2=ha66f8fd_1
@@ -50,6 +51,7 @@ dependencies:
   - libpng=1.6.37=h2a8f88b_0
   - libsodium=1.0.16=h9d3ae62_0
   - libtiff=4.0.10=hb898794_2
+  - llvmlite=0.31.0=py37ha925a31_0
   - macholib=1.11=py_0
   - markupsafe=1.1.1=py37he774522_0
   - matplotlib=3.1.1=py37hc8f65d3_0
@@ -66,7 +68,7 @@ dependencies:
   - numpydoc=0.9.1=py_0
   - olefile=0.46=py37_0
   - opencv=3.4.2=py37h40b0b35_0
-  - openssl=1.1.1d=he774522_3
+  - openssl=1.1.1f=he774522_0
   - packaging=19.2=py_0
   - pandas=0.25.1=py37ha925a31_0
   - pandoc=2.2.3.2=0
@@ -90,6 +92,7 @@ dependencies:
   - pyparsing=2.4.2=py_0
   - pyqt=5.9.2=py37h6538335_2
   - pyrsistent=0.15.4=py37he774522_0
+  - pyshp=2.1.0=py_0
   - pysocks=1.7.1=py37_0
   - python=3.7.4=h5263a28_0
   - python-dateutil=2.8.0=py37_0

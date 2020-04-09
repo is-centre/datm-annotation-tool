@@ -8,6 +8,8 @@ import numpy as np
 import cv2
 from qimage2ndarray import array2qimage
 
+from lib.tkmask import *
+
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
 # Specific UI features
@@ -24,11 +26,11 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.96-beta"
+APP_VERSION = "0.97-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
-BRUSH_DIAMETER_MAX = 60
+BRUSH_DIAMETER_MAX = 100
 BRUSH_DIAMETER_DEFAULT = 40
 
 # Colors
@@ -39,7 +41,9 @@ HELPER_COLOR = QColor(0,0,0,99)
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Applications states in status bar
-    APP_STATUS_STATES = {"ready": "Ready.", "loading": "Loading image..."}
+    APP_STATUS_STATES = {"ready": "Ready.",
+                         "loading": "Loading image...",
+                         "no_images": "No images or unexpected folder structure."}
 
     # Annotation modes
     ANNOTATION_MODE_MARKING_DEFECTS = 0
@@ -192,7 +196,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Clear currently used paint completely
     def clear_all_annotations(self):
 
-        print("Not implemented")
+        img_new = np.zeros(self.img_shape, dtype=np.uint8)
+        if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            self.current_defects = img_new
+        elif self.annotation_mode is self.ANNOTATION_MODE_MARKING_MASK:
+            self.current_updated_mask = 255-img_new
+        self.update_annotator_view()
 
     def update_annotator(self):
         if self.annotator is not None:
@@ -326,8 +335,18 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
 
-            # Load the image
-            self.current_image = QImage(img_path + (".jpg", ".marked.jpg")[self.actionLoad_marked_image.isChecked()])
+            # Load the image; if we must add some previous annotation to the image, try to do it here
+            if self.actionLoad_marked_image.isChecked():
+                try:
+                    self.log("Drawing defect marks on original image...")
+                    img2 = filimage(self.txtImageDir.text(), img_name_no_ext)
+                    self.current_image = QImage(array2qimage(img2))
+                except:
+                    print("Could not find the shapefile data. It must be placed one directory higher than the orthophotos. Will load the original image instead.")
+                    self.log("Could not find the shapefile data. It must be placed one directory higher than the orthophotos. Will load the original image instead.")
+                    self.current_image = QImage(img_path + ".jpg")
+            else:
+                self.current_image = QImage(img_path + ".jpg")
 
             # Shape of the image
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
@@ -339,7 +358,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                 self.current_mask = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
                 self.current_helper = get_sqround_mask(self.current_mask)
             except:
-                raise FileNotFoundError("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
+                print("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
+                self.log("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
+                self.status_bar_message("no_images")
+                return
 
             # Set also default annotation mode
             self.annotation_mode_default()
@@ -403,7 +425,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         else:
             self.log("Cannot load the auto-generated image: either file missing or wrong mode selected.")
             # For now also print it to CMD, maybe remove later
-            print("Cannot load the auto-generated image: either file missing or wrong mode selected.")
+            print("Cannot load the auto-generated image: either file missing eror wrong mode selected.")
 
     def load_prev_image(self):
         total_items = self.lstImages.count()
@@ -618,6 +640,26 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     def browse_image_directory(self):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose working directory")
         if directory:
+
+            ##### Clear the annotator
+            self.clear_all_annotations()
+
+            self.current_image = None  # Original image
+            self.current_mask = None  # Original mask
+            self.current_helper = None  # Helper mask
+
+            # User-updatable items
+            self.current_defects = None  # Defects mask
+            self.current_updated_mask = None  # Updated mask
+
+            # Image name
+            self.current_img = None
+            self.current_img_as_listed = None
+
+            self.annotator.clearImage()
+
+            #####
+
             # Set the path
             self.txtImageDir.setText(directory)
             self.check_paths()
@@ -634,11 +676,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Get the JPG files
             self.lstImages.clear()
-            allowed_ext = ".marked.jpg"
-            disallowed_ext = ".cut.marked.jpg"
+            allowed_ext = [".jpg"]
             file_cnt = 0
             for file_name in os.listdir(directory):
-                if allowed_ext in file_name and disallowed_ext not in file_name:
+                if any(ext in file_name.lower() for ext in allowed_ext) and file_name.count(".") < 2:
                     file_cnt += 1
                     self.lstImages.addItem(os.path.splitext(file_name)[0])
 

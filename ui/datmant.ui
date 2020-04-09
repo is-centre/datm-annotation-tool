@@ -243,13 +243,13 @@
          <item>
           <widget class="QPushButton" name="btnClear">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="text">
-            <string>[R] Clear ALL annotations</string>
+            <string>[R] Clear current annotations</string>
            </property>
            <property name="shortcut">
-            <string>Backspace</string>
+            <string>R</string>
            </property>
           </widget>
          </item>
