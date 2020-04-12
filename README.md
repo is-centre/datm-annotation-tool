@@ -88,7 +88,7 @@ What concerns different views and mask generation, you have the options describe
 
 **NB! Changing these options will result in you losing any current defect annotations unless you save them beforehand, so if you want to keep the annotations of defects, you need to save them using File→Save current annotations**
 
-* The **View→Load marked image** checkbox allows to load either pre-annotated reference images (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes.
+* The **View→Load marked image** checkbox allows to pre-annotate the orthoframes if the corresponding shapefiles are available (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes. **NB!** To use this feature, please choose the folder that contains the shape files with defects in the form `defects_line.*`, `defects_point.*`, and `defects_polygon.*` using the **Defect .shp folder**→**Browse...** dialog in the main UI.
 * The **Edit→Process original mask** checkbox applies preprocessing to the original mask which can speed up the mask correction workflow. Note **you will only see the original/preprocessed mask** if the corrected mask `FILENAME.cut.mask_v2.png` is **not** found in the folder. If you would like to restart the mask correction process, please manually delete the corresponding file taking note of the current image `FILENAME`.
 * The **Edit→Reload AUTO defect mask** menu entry reloads the automatically generated defect mask if it is present in the working directory and the annotation mode is set to defect annotation.
 

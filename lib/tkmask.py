@@ -1,21 +1,15 @@
-import sys
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import shapefile
 import os
 
 
-# produces tehnokeskuse defect mask (single file version)
+# Produces tehnokeskuse defect mask (library version)
+def filimage(path, shpath, fname):
 
-
-def filimage(path, fname):
     # The shape file is assumed to be one directory up than the orthophotos
     path = path.strip("\\")  # Remove trailing slash
-    path_elem = path.split(os.path.sep)
-
     path += os.path.sep  # Reintroduce trailing slash
-    path1 = os.path.sep.join(path_elem[:-1]) + os.path.sep
 
     # read the image file and the mask
     img = cv2.imread(path + fname + '.jpg')
@@ -35,7 +29,7 @@ def filimage(path, fname):
     ymin = koord[3] + koord[5] * (h - 1)
     ymax = koord[3]
 
-    pnts, tyyp = getdefects(path1, xmin, xmax, ymin, ymax, koord)
+    pnts, tyyp = getdefects(shpath, xmin, xmax, ymin, ymax, koord)
 
     # different defects are drawn in different colors, can be replaced with a single color
     colors = [(128, 0, 255), (128, 0, 255), (128, 0, 255), (128, 0, 255),

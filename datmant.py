@@ -26,7 +26,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.97-beta"
+APP_VERSION = "0.97.1-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -155,6 +155,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.annotator.mouseWheelRotated.connect(self.accept_brush_diameter_change)
         self.btnClear.clicked.connect(self.clear_all_annotations)
         self.btnBrowseImageDir.clicked.connect(self.browse_image_directory)
+        self.btnBrowseShp.clicked.connect(self.browse_shp_dir)
         self.btnPrev.clicked.connect(self.load_prev_image)
         self.btnNext.clicked.connect(self.load_next_image)
         self.btnMode.clicked.connect(self.annotation_mode_switch)
@@ -339,11 +340,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             if self.actionLoad_marked_image.isChecked():
                 try:
                     self.log("Drawing defect marks on original image...")
-                    img2 = filimage(self.txtImageDir.text(), img_name_no_ext)
+                    img2 = filimage(self.txtImageDir.text(), self.txtShpDir.text(), img_name_no_ext)
                     self.current_image = QImage(array2qimage(img2))
                 except:
-                    print("Could not find the shapefile data. It must be placed one directory higher than the orthophotos. Will load the original image instead.")
-                    self.log("Could not find the shapefile data. It must be placed one directory higher than the orthophotos. Will load the original image instead.")
+                    self.actionLoad_marked_image.setChecked(False)
+                    self.log("Could not find or load the shapefile data. Will load the original image instead.")
                     self.current_image = QImage(img_path + ".jpg")
             else:
                 self.current_image = QImage(img_path + ".jpg")
@@ -358,7 +359,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                 self.current_mask = cv2.imread(img_path + self.MASK_FILE_EXTENSION_PATTERN, cv2.IMREAD_GRAYSCALE)
                 self.current_helper = get_sqround_mask(self.current_mask)
             except:
-                print("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
+                print("Cannot find the mask file. Please make sure FILENAME.mask.png " +
+                      "files exist in the folder for every image")
                 self.log("Cannot find the mask file. Please make sure FILENAME.mask.png files exist in the folder for every image")
                 self.status_bar_message("no_images")
                 return
@@ -547,6 +549,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                 self.txtImageDir.setText(directory)
                 self.get_image_files()
 
+            shpdir = self.config_data['MenuOptions']['ShapefileDirectory']
+            if shpdir != "":
+                self.log('Changed shapefile directory to ' + shpdir)
+                self.txtShpDir.setText(shpdir)
+
         else:
 
             # Initialize the config file
@@ -568,7 +575,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         config_defaults['MenuOptions'] = \
             {'ShowLog': '0',
              'ProcessMask': '1',
-             'ImageDirectory': ''}
+             'ImageDirectory': '',
+             'ShapefileDirectory': ''}
 
         return config_defaults
 
@@ -614,10 +622,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     def check_paths(self):
         # Use this to check the paths
         self.txtImageDir.setText(self.fix_path(self.txtImageDir.text()))
+        self.txtShpDir.setText(self.fix_path(self.txtShpDir.text()))
 
     def store_paths_to_config(self):
         # Use this to store the paths to config
         self.config_data['MenuOptions']['ImageDirectory'] = self.txtImageDir.text()
+        self.config_data['MenuOptions']['ShapefileDirectory'] = self.txtShpDir.text()
         self.config_save()
 
     def store_menu_options_to_config(self):
@@ -635,6 +645,19 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.statusbar.showMessage(self.APP_STATUS_STATES[msgid])
         if self.app is not None:
             self.app.processEvents()
+
+    # Locate the shapefile directory
+    def browse_shp_dir(self):
+        dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose directory containing the defect shapefiles")
+
+        if dir:
+
+            self.txtShpDir.setText(dir)
+            self.check_paths()
+            self.store_paths_to_config()
+
+            self.log('Changed defect shapefile directory to ' + dir)
+
 
     # Locate working directory with files
     def browse_image_directory(self):
@@ -656,7 +679,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.current_img = None
             self.current_img_as_listed = None
 
-            self.annotator.clearImage()
+            self.annotator.clearAll()
 
             #####
 
@@ -690,8 +713,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.log("Found " + str(file_cnt) + " images in the working directory")
 
-    def update_button_states(self):
-        print("No button states to update.")
+    def update_button_states(self):  # TODO: Reserved for future use
+        return
 
 
 def main():

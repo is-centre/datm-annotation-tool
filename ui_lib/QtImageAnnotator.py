@@ -131,6 +131,7 @@ class QtImageAnnotator(QGraphicsView):
             return self._pixmapHandle.pixmap().toImage()
         return None
 
+
     def clearAndSetImageAndMask(self, image, mask, helper=None):
         # Clear the scene
         self.scene.clear()
@@ -192,6 +193,26 @@ class QtImageAnnotator(QGraphicsView):
 
         self.updateViewer()
 
+    # Clear everything
+    def clearAll(self):
+
+        if self._pixmapHandle is not None:
+            self.scene.removeItem(self._pixmapHandle)
+
+        if self._helperHandle is not None:
+            self.scene.removeItem(self._helperHandle)
+
+        if self._overlayHandle is not None:
+            self.scene.removeItem(self._overlayHandle)
+
+        self._pixmapHandle = None
+        self._helperHandle = None
+        self._overlayHandle = None
+
+        self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+        self.updateViewer()
+
+    # Set image only
     def setImage(self, image):
         """ Set the scene's current image pixmap to the input QImage or QPixmap.
         Raises a RuntimeError if the input image has type other than QImage or QPixmap.
