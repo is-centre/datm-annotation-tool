@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 from qimage2ndarray import array2qimage
 
-from lib.tkmask import *
+from lib.tkmask import filimage
 
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
@@ -26,7 +26,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.97.1-beta"
+APP_VERSION = "0.98-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -37,6 +37,7 @@ BRUSH_DIAMETER_DEFAULT = 40
 MARK_COLOR_MASK = QColor(255,0,0,99)
 MARK_COLOR_DEFECT = QColor(0,0,255,99)
 HELPER_COLOR = QColor(0,0,0,99)
+
 
 # Main UI class with all methods
 class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
@@ -409,6 +410,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             # Once all that is done, we need to update the actual image working area
             self.update_annotator_view()
+
+            # Need to set focus on the QGraphicsScene so that shortcuts would work immediately
+            self.annotator.setFocus()
 
             self.status_bar_message("ready")
             self.log("Done loading image")

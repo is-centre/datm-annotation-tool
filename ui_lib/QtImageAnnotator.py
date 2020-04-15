@@ -10,11 +10,10 @@ from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog, QApplica
 __author__ = "Aleksei Tepljakov <alex@starspirals.net>"
 __original_author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
 __original_title__ = "QtImageViewer"
-__version__ = '1.0.0'
+__version__ = '1.5.0'
 
-__debug_out__ = "C:\\Users\\Aleksei\\Desktop\\"
-
-MAX_CTRLZ_STATES = 10
+# Undo states
+MAX_CTRLZ_STATES = 20
 
 # Reusable component for painting over an image for, e.g., masking purposes
 class QtImageAnnotator(QGraphicsView):
@@ -63,6 +62,9 @@ class QtImageAnnotator(QGraphicsView):
         self.MAX_BRUSH_DIAMETER = 500
 
         self.brush_fill_color = QColor(255,0,0,99)
+
+        # Zoom in modifier: this should be between 4 and 20
+        self.zoom_in_modifier = 4
 
         # Painting and erasing modes
         self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
@@ -311,8 +313,6 @@ class QtImageAnnotator(QGraphicsView):
                                                 y - self.brush_diameter / (2 * np.sqrt(2)))
 
     def update_cursor_location(self, event):
-        # There's a problem with this cursor that it's too big.
-        # self.viewport().setCursor(Qt.CrossCursor)
 
         scenePos = self.mapToScene(event.pos())
         x, y = scenePos.x(), scenePos.y()
@@ -444,6 +444,30 @@ class QtImageAnnotator(QGraphicsView):
     def keyPressEvent(self, event):
 
         if self.hasImage():
+
+            # Zoom in
+            if event.key() == Qt.Key_Plus:
+
+                viewBBox = self.zoomStack[-1] if len(self.zoomStack) else self.sceneRect()
+
+                wh12 = int(max(viewBBox.width(), viewBBox.height()) / self.zoom_in_modifier)
+                x, y = self._lastCursorCoords
+
+                selectionBBox = QRectF(x-wh12, y-wh12, 2*wh12, 2*wh12).intersected(viewBBox)
+
+                if selectionBBox.isValid() and (selectionBBox != viewBBox):
+                    self.zoomStack.append(selectionBBox)
+                    self.updateViewer()
+
+            # Zoom out
+            if event.key() == Qt.Key_Minus:
+                if self.canZoom:
+                    viewBBox = self.zoomStack[-1] if len(self.zoomStack) else False
+                    if viewBBox:
+                        self.zoomStack = self.zoomStack[:-1]
+                        self.updateViewer()
+
+            # Fill mask region
             if event.key() == Qt.Key_F:
                 try:
                     self.viewport().setCursor(Qt.BusyCursor)
@@ -464,13 +488,17 @@ class QtImageAnnotator(QGraphicsView):
                     self._deleteCrossHandles[0].hide()
                     self._deleteCrossHandles[1].hide()
 
+            # Temporarily hide the overlay
+            if event.key() == Qt.Key_H:
+                self._overlayHandle.hide()
+
             # Undo operations
             if event.key() == Qt.Key_Z:
                 if QApplication.keyboardModifiers() & Qt.ControlModifier:
                     if (len(self._overlay_stack) > 0):
                         self.mask_pixmap = self._overlay_stack.pop()
                         self._overlayHandle.setPixmap(self.mask_pixmap)
-                        self.updateViewer()
+                        # self.updateViewer()
 
             # When CONTROL is pressed, show the delete cross
             if event.key() == Qt.Key_Control and not self.global_erase_override:
@@ -486,6 +514,10 @@ class QtImageAnnotator(QGraphicsView):
             if event.key() == Qt.Key_Control and not self.global_erase_override:
                 self._deleteCrossHandles[0].hide()
                 self._deleteCrossHandles[1].hide()
+
+            # Show the overlay again
+            if event.key() == Qt.Key_H:
+                self._overlayHandle.show()
 
         QGraphicsView.keyPressEvent(self, event)
 
