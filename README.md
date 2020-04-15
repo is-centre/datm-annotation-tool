@@ -38,7 +38,7 @@ The first thing to do, is to browse to the folder that contains the orthoframes 
 
 * `FILENAME.marked.jpg`: this file should contain defect markings painted over pavement distress. The Python script for creating these files is available separately. For testing purposes, you can simple create these files by adding `.marked` to the end of the file name before the extension.
 * `FILENAME.mask.png`: the initial mask of the paved road part of the image. If it does not exist, an empty mask will be used.
-
+* `FILENAME.vrt`: file with image geometry data (optional): necessary for marking defects if they are already stored in a relevant shapefile database (see below).
 * `FILENAME.predicted_defects.png` (optional): automatically generated defect masks to be manually processed (if available).
 
 Also note that the tool will produce the following files for every processed orthoframe:
@@ -69,10 +69,11 @@ It is assumed that a typical computer mouse with three buttons and a scroll whee
 * To change the painting mode (defects or mask in-painting), use the button on the bottom of the UI. The color of the button also hints at the colors with which defects and non-paved areas are marked: blue and red, respectively.
 * To paint over a defect or unpaved area (depending on the mode), **left click and drag.****
 * To erase any paint (any annotation is erased independent on the mode!), either switch to **delete mode** by pressing **[D]** on the keyboard, or use **control-left click** in normal painting mode. Either way, you will see an X painted over the brush cursor that symbolizes that you have entered delete mode.
+* To temporarily hide annotations, press and hold the **[H]** key on the keyboard.
 * To change brush size, **rotate the mouse wheel** while **holding control**. You can also change the size of the brush using the corresponding slider in the UI.
 * To create *line segments*, **left click** once at the starting point and then **shift-left click** at the end point.
 * To fill bounded areas with selected brush color, position the brush over the area and press **[F]** on the keyboard.
-* There is also a 10 step buffer for undoing incorrect painting operations via the usual shortcut **CTRL+Z**. Note however that a forward step is not yet available, so once undone you cannot reverse the operation via CTRL+Y.
+* There is also a 20 step buffer for undoing incorrect painting operations via the usual shortcut **CTRL+Z**. Note however that a forward step is not yet available, so once undone you cannot reverse the operation via CTRL+Y.
 
 At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet.
 
@@ -80,6 +81,7 @@ At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet
 
 * To zoom in on a particular portion of the image **right click and drag** over the region of interest.
 * To zoom out, **double right click**.
+* Use the **[+]** and **[−]** keys on the keyboard to zoom in and out. Zooming in will take into account the last known cursor location and magnification will be applied in discrete steps.
 * To pan the image while zoomed-in, **middle click and drag**.
 
 Note that **companion files will be automatically saved for each orthoframe only** once you choose another orthoframe from the *Current image* list or press **[P]** *Previous image* or **[N]** *Next image* or choose **File→Save current annotations** from the menu. The application also warns you when navigating files whether you have reached either end of the folder.
