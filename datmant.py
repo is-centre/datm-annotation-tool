@@ -26,7 +26,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.98-beta"
+APP_VERSION = "0.98.1-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -204,6 +204,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         elif self.annotation_mode is self.ANNOTATION_MODE_MARKING_MASK:
             self.current_updated_mask = 255-img_new
         self.update_annotator_view()
+        self.annotator.setFocus()
 
     def update_annotator(self):
         if self.annotator is not None:
@@ -236,6 +237,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Update the view
         self.update_annotator_view()
+        self.annotator.setFocus()
 
     # Set default annotation mode
     def annotation_mode_default(self):
