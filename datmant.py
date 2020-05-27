@@ -26,7 +26,7 @@ import subprocess
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.98.1-beta"
+APP_VERSION = "0.98.2-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -285,6 +285,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             return the_new_mask
 
     def update_annotator_view(self):
+
+        # If there is no image, there's nothing to clear
+        if self.current_image is None:
+            return
+
         if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
@@ -671,11 +676,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if directory:
 
             ##### Clear the annotator
-            self.clear_all_annotations()
-
             self.current_image = None  # Original image
             self.current_mask = None  # Original mask
             self.current_helper = None  # Helper mask
+            self.clear_all_annotations()
 
             # User-updatable items
             self.current_defects = None  # Defects mask
