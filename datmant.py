@@ -163,10 +163,16 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Selecting new image from list
         # NB! We depend on this firing on index change, so we remove manual load_image elsewhere
-        self.lstImages.currentIndexChanged.connect(self.load_image)
+        self.connect_image_load_on_list_index_change(True)
 
         # Try to load an image now that everything is initialized
         self.load_image()
+
+    def connect_image_load_on_list_index_change(self, state):
+        if state:
+            self.lstImages.currentIndexChanged.connect(self.load_image)
+        else:
+            self.lstImages.disconnect()
 
     def initialize_brush_slider(self):
         self.sldBrushDiameter.setMinimum(BRUSH_DIAMETER_MIN)
@@ -701,6 +707,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.log('Changed working directory to ' + directory)
 
             self.get_image_files()
+
+            # Disable the index change event, load image, reenable it
+            self.connect_image_load_on_list_index_change(False)
+            self.load_image()
+            self.connect_image_load_on_list_index_change(True)
 
     def get_image_files(self):
         directory = self.txtImageDir.text()
