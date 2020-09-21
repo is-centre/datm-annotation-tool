@@ -1,0 +1,10 @@
+COLOR_NAME_ET;COLOR_ABBR_ET;COLOR_NAME_EN;COLOR_HEXRGB_TK;COLOR_HEXRGB_DATMANT
+servadefekt;SERV;edge defect;#9a02ff;#cb51ff
+põikpragu;POIKPR;transverse cracking;#006f05;#71d13d
+pikipragu;LPIKIPR, KPIKIPR;longitudinal crack;#ffe900;#ffff7c
+vuugipragu;KVUUK, LVUUK;joint reflection crack;#ff5500;#ff9a00
+auk;AUK;pothole;#947366;#949494
+paik;PAIK;patched road;#0000ff;#3399ff
+võrkpragu;VORK;network cracking;#b40012;#e15171
+murenemine;MUREN;weathering;#85e516;#97e5b9
+määramata;MAARMT;undefined;#dddddd;#ffffff
