@@ -2,18 +2,33 @@ import os.path
 import cv2
 import numpy as np
 import collections
-from qimage2ndarray import rgb_view, alpha_view, array2qimage
+from qimage2ndarray import rgb_view, alpha_view, array2qimage, recarray_view
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
 from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog, QApplication
 
 __author__ = "Aleksei Tepljakov <alex@starspirals.net>"
+__title__ = "QTImageAnnotator"
 __original_author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
 __original_title__ = "QtImageViewer"
-__version__ = '1.5.0'
+__version__ = '1.6.0'
 
 # Undo states
 MAX_CTRLZ_STATES = 20
+
+# TODO: setting the below constant is a temporary solution geared towards fixing a bug
+# The situation is as follows: converting from QPixmap to QImage, then also converting to RGBA32 format
+# causes slight (and random) variations in the RGB values. When we need to extract different masks, we also
+# need to know PRECISE RGB values to compare against. Unfortunately, if they fluctuate, then we can only
+# approximately compare the color values, which means we can never have colors that are very close
+# together in either R, B, or G values.
+#
+# To fix this, one could consider drawing to a QImage instead and on every draw, convert that to a QPixmap.
+# However, this will likely kill real-time performance. Unless, the QImage is hidden and used only for painting.
+# Then we can actually paint greyscale immediately to save time.
+#
+# For now, we stick to this solution.
+PIXMAP_CONV_BUG_ATOL = 2
 
 # Reusable component for painting over an image for, e.g., masking purposes
 class QtImageAnnotator(QGraphicsView):
@@ -67,10 +82,17 @@ class QtImageAnnotator(QGraphicsView):
         self.zoom_in_modifier = 4
 
         # Painting and erasing modes
-        self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
+        #self.MODE_PAINT = QPainter.RasterOp_SourceOrDestination
+        self.MODE_PAINT = QPainter.CompositionMode_Source
         self.MODE_ERASE = QPainter.CompositionMode_Clear
         self.current_painting_mode = self.MODE_PAINT
         self.global_erase_override = False
+
+        # Mask related. This will allow to automatically create overlays given grayscale masks
+        # and also save grayscale masks from RGB drawings. Both dicts must be provided for the
+        # related functions to work properly (cannot assume unique key-value combinations)
+        self.d_rgb2gray = None
+        self.d_gray2rgb = None
 
         # Make mouse events accessible
         self.setMouseTracking(True)
@@ -134,7 +156,7 @@ class QtImageAnnotator(QGraphicsView):
         return None
 
 
-    def clearAndSetImageAndMask(self, image, mask, helper=None):
+    def clearAndSetImageAndMask(self, image, mask, helper=None, process_gray2rgb=False):
         # Clear the scene
         self.scene.clear()
 
@@ -170,6 +192,19 @@ class QtImageAnnotator(QGraphicsView):
             # Add the helper layer
             self._helperHandle = self.scene.addPixmap(pixmap)
 
+        # If we are supplied a grayscale mask that we need to convert to RGB, we will do it here
+        if process_gray2rgb:
+            if self.d_gray2rgb:
+                # We assume mask is np array, grayscale and the conversion rules are set (otherwise cannot continue)
+                h, w = mask.shape
+                new_mask = np.zeros((h, w, 4), np.uint8)
+                for gr, rgb in self.d_gray2rgb.items():
+                    col = QColor("#63" + rgb.split("#")[1]).getRgb()
+                    new_mask[mask == gr] = col
+                mask = array2qimage(new_mask)
+            else:
+                raise RuntimeError("Cannot convert the provided grayscale mask to RGB without color specifications.")
+
         # Now we change the mask as well
         if type(mask) is QPixmap:
             pixmap = mask
@@ -194,6 +229,30 @@ class QtImageAnnotator(QGraphicsView):
             self._deleteCrossHandles[1].hide()
 
         self.updateViewer()
+
+    # Export the grayscale mask
+    def export_rgb2gray_mask(self):
+        if self._overlayHandle is not None:
+            if self.d_rgb2gray:
+
+                # Split the image to rgb components
+                rgb_m = self.export_ndarray_noalpha()
+                reds, greens, blues = rgb_m[:, :, 0], rgb_m[:, :, 1], rgb_m[:, :, 2]
+                h, w, _ = rgb_m.shape
+                mask = np.zeros((h, w), np.uint8)
+
+                # Go through all the colors and paint the grayscale mask according to the conversion spec
+                for rgb, gr in self.d_rgb2gray.items():
+                    cc = list(QColor(rgb).getRgb())
+                    mask[np.isclose(reds, cc[0], atol=PIXMAP_CONV_BUG_ATOL) &
+                         np.isclose(greens, cc[1], atol=PIXMAP_CONV_BUG_ATOL) &
+                         np.isclose(blues, cc[2], atol=PIXMAP_CONV_BUG_ATOL)] = gr
+            else:
+                raise RuntimeError("Cannot convert the RGB mask to grayscale without color specifications.")
+        else:
+            raise RuntimeError("There is no RGB mask to export to grayscale.")
+
+        return mask
 
     # Clear everything
     def clearAll(self):
@@ -383,12 +442,18 @@ class QtImageAnnotator(QGraphicsView):
         scenePos = self.mapToScene(event.pos())
         painter = QPainter(self.mask_pixmap)
         painter.setCompositionMode(self.current_painting_mode)
-        painter.setPen(QColor(0,0,0,0))
+        painter.setPen(self.brush_fill_color)
         painter.setBrush(self.brush_fill_color)
-        painter.drawEllipse(scenePos.x() - self.brush_diameter/2,
-                            scenePos.y() - self.brush_diameter/2, self.brush_diameter, self.brush_diameter)
 
-        # TODO: With really large images, update is very slow. Must somehow fix this.
+        # Get the coordinates of where to draw
+        a0 = scenePos.x() - self.brush_diameter/2
+        b0 = scenePos.y() - self.brush_diameter/2
+        r0 = self.brush_diameter
+
+        # Finally, draw
+        painter.drawEllipse(a0, b0, r0, r0)
+
+        # TODO: With really large images, update is rather slow. Must somehow fix this.
         # It seems that the way to approach hardcore optimization is to switch to OpenGL
         # for all rendering purposes. This update will likely come much later in the tool's
         # lifecycle.
@@ -408,7 +473,9 @@ class QtImageAnnotator(QGraphicsView):
         self.lastPoint = scenePos
 
     # Fills an area using the last stored cursor location
-    def fillArea(self):
+    # If optional argument remove_closed_contour is set to True, then
+    # the closed contour over which the cursor is hovering will be erased
+    def fillArea(self, remove_closed_contour=False, remove_only_current_color=True):
 
         # Store previous state so we can go back to it
         self._overlay_stack.append(self.mask_pixmap.copy())
@@ -420,22 +487,67 @@ class QtImageAnnotator(QGraphicsView):
         # Apply simple tresholding and invert the image
         msk[np.where((msk>0))] = 255
         msk = 255-msk
+        msk1 = np.copy(msk)
+
+        if remove_closed_contour:
+            msk1 = 255-msk1
+
+        if remove_closed_contour:
+            if remove_only_current_color:
+                the_mask = np.ones(msk1.shape[:2], np.uint8) * 255  # Initial mask
+                fullmask = self.export_ndarray_noalpha()  # Get the colored version
+                reds, greens, blues = fullmask[:, :, 0], fullmask[:, :, 1], fullmask[:, :, 2]
+                cur_col = list(self.brush_fill_color.getRgb())[:-1]  # Only current color is considered
+                # So that fill happens only for this specific color
+                the_mask[np.isclose(reds, cur_col[0], atol=PIXMAP_CONV_BUG_ATOL) &
+                         np.isclose(greens, cur_col[1], atol=PIXMAP_CONV_BUG_ATOL) &
+                         np.isclose(blues, cur_col[2], atol=PIXMAP_CONV_BUG_ATOL)] = 0
+
+            else:
+                the_mask = np.zeros(msk1.shape[:2], np.uint8)
+        else:
+            the_mask = cv2.bitwise_not(np.copy(msk))
+
+        the_mask = cv2.copyMakeBorder(the_mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0)
 
         # Fill the contour
         seed_point = (int(self.lastCursorLocation.x()), int(self.lastCursorLocation.y()))
-        msk1 = np.copy(msk)
-        cv2.floodFill(msk1, cv2.copyMakeBorder(cv2.bitwise_not(msk), 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0),
-                      seed_point, 0, 0, 1)
+        cv2.floodFill(msk1, the_mask, seed_point, 0, 0, 1)
 
-        # We paint in only the newly arrived pixels
-        paintin = msk - msk1
+        # We paint in only the newly arrived pixels (or remove the pixels in the contour)
+        if remove_closed_contour:
+            paintin = msk1
+        else:
+            paintin = msk - msk1  # This is fill case
 
         # Take original pixmap image: it has two components, RGB and ALPHA
         new_img = np.dstack((rgb_view(orig_mask), alpha_view(orig_mask)))
 
         # Fill the newly created area with current brush color
-        new_img[np.where((paintin==255))] = list(self.brush_fill_color.getRgb())
+        if not remove_closed_contour:
+            new_img[np.where((paintin==255))] = list(self.brush_fill_color.getRgb())
+        else:
+            new_img[np.where((paintin==0))] = (0,0,0,0)  # Erase
 
+        new_qimg = array2qimage(new_img)
+        self.mask_pixmap = QPixmap.fromImage(new_qimg)
+        self._overlayHandle.setPixmap(self.mask_pixmap)
+
+    # Repaint connected contour (disregarding color information) to the current paint color
+    def repaintArea(self):
+
+        self._overlay_stack.append(self.mask_pixmap.copy())
+        orig_mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        msk = alpha_view(orig_mask).copy()
+        msk[np.where((msk>0))] = 255
+        msk = 255-msk
+        msk1 = 255-np.copy(msk)
+        the_mask = cv2.copyMakeBorder(np.zeros(msk1.shape[:2], np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0)
+        seed_point = (int(self.lastCursorLocation.x()), int(self.lastCursorLocation.y()))
+        cv2.floodFill(msk1, the_mask, seed_point, 0, 0, 1)
+        paintin = np.bitwise_xor(msk, msk1)
+        new_img = np.dstack((rgb_view(orig_mask), alpha_view(orig_mask)))
+        new_img[np.where((paintin == 0))] = list(self.brush_fill_color.getRgb())
         new_qimg = array2qimage(new_img)
         self.mask_pixmap = QPixmap.fromImage(new_qimg)
         self._overlayHandle.setPixmap(self.mask_pixmap)
@@ -472,9 +584,32 @@ class QtImageAnnotator(QGraphicsView):
                 try:
                     self.viewport().setCursor(Qt.BusyCursor)
                     self.fillArea()
-                except:
-                    print("Cannot fill region")
+                except Exception as e:
+                    print("Cannot fill region. Additional information:")
+                    print(e)
                 self.viewport().setCursor(Qt.ArrowCursor)
+
+            # Erase closed contour under cursor with current paint color
+            if event.key() == Qt.Key_X:
+                if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                    try:
+                        self.viewport().setCursor(Qt.BusyCursor)
+                        self.fillArea(remove_closed_contour=True)
+                    except Exception as e:
+                        print("Cannot remove the contour. Additional information:")
+                        print(e)
+                    self.viewport().setCursor(Qt.ArrowCursor)
+
+            # Erase closed contour under cursor and any connected contour regardless of color
+            if event.key() == Qt.Key_Q:
+                if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                    try:
+                        self.viewport().setCursor(Qt.BusyCursor)
+                        self.fillArea(remove_closed_contour=True, remove_only_current_color=False)
+                    except Exception as e:
+                        print("Cannot remove the contour. Additional information:")
+                        print(e)
+                    self.viewport().setCursor(Qt.ArrowCursor)
 
             # Erase mode enable/disable
             if event.key() == Qt.Key_D:
@@ -531,6 +666,18 @@ class QtImageAnnotator(QGraphicsView):
 
                 self._overlay_stack.append(self.mask_pixmap.copy())
 
+                # If ALT is held, replace color
+                repaint_was_active = False
+                if QApplication.keyboardModifiers() & Qt.AltModifier:
+                    try:
+                        repaint_was_active = True
+                        self.viewport().setCursor(Qt.BusyCursor)
+                        self.repaintArea()
+                    except Exception as e:
+                        print("Cannot repaint region. Additional information:")
+                        print(e)
+                    self.viewport().setCursor(Qt.ArrowCursor)
+
                 # If SHIFT is held, draw a line
                 if QApplication.keyboardModifiers() & Qt.ShiftModifier:
                     self.drawMarkerLine(event)
@@ -542,8 +689,9 @@ class QtImageAnnotator(QGraphicsView):
                     else:
                         self.current_painting_mode = self.MODE_PAINT
 
-                # If the user just clicks, add a marker
-                self.fillMarker(event)
+                # If the user just clicks, add a marker (unless repainting was done)
+                if not repaint_was_active:
+                    self.fillMarker(event)
 
                 self.leftMouseButtonPressed.emit(scenePos.x(), scenePos.y())
             elif event.button() == Qt.MiddleButton:

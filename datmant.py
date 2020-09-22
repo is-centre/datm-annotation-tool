@@ -9,19 +9,20 @@ import cv2
 from qimage2ndarray import array2qimage
 
 from lib.tkmask import filimage
-
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
 # Specific UI features
 from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog
-from PyQt5.QtGui import QPixmap, QImage, QColor
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
+from PyQt5.QtCore import Qt, QRectF, QSize
 
 from ui import datmant_ui
 import configparser
 import time
 import datetime
 import subprocess
+
+import pandas as pd
 
 # Overall constants
 PUBLISHER = "AlphaControlLab"
@@ -35,8 +36,11 @@ BRUSH_DIAMETER_DEFAULT = 40
 
 # Colors
 MARK_COLOR_MASK = QColor(255,0,0,99)
-MARK_COLOR_DEFECT = QColor(0,0,255,99)
+MARK_COLOR_DEFECT_DEFAULT = QColor(0, 0, 255, 99)
 HELPER_COLOR = QColor(0,0,0,99)
+
+# Some paths
+COLOR_DEF_PATH = "defs/color_defs.csv"
 
 
 # Main UI class with all methods
@@ -44,6 +48,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Applications states in status bar
     APP_STATUS_STATES = {"ready": "Ready.",
                          "loading": "Loading image...",
+                         "exporting_layers": "Exporting layers...",
                          "no_images": "No images or unexpected folder structure."}
 
     # Annotation modes
@@ -79,7 +84,14 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     brush = None
     brush_diameter = BRUSH_DIAMETER_DEFAULT
 
+    # Color definitions
+    cspec = None
+
     current_paint = None  # Paint of the brush
+
+    # Color conversion dicts
+    d_rgb2gray = None
+    d_gray2rgb = None
 
     # Immutable items
     current_image = None  # Original image
@@ -118,6 +130,17 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Config file storage: config file stored in user directory
         self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
+
+        # Get color specifications and populate the corresponding combobox
+        self.read_defect_color_defs()
+        self.add_colors_to_list()
+
+        # Assign necessary dicts in the annotator component
+        if self.d_rgb2gray is not None and self.d_gray2rgb is not None:
+            self.annotator.d_rgb2gray = self.d_rgb2gray
+            self.annotator.d_gray2rgb = self.d_gray2rgb
+        else:
+            raise RuntimeError("Failed to load the color conversion schemes. Annotations cannot be saved.")
 
         # Update button states
         self.update_button_states()
@@ -235,7 +258,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.annotation_mode += 1
         if self.annotation_mode > 1:
             self.annotation_mode = 0
-        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.current_paint = [MARK_COLOR_DEFECT_DEFAULT, MARK_COLOR_MASK][self.annotation_mode]
+        if self.annotation_mode == self.ANNOTATION_MODE_MARKING_DEFECTS:  # TODO: this should be optimized
+            self.change_brush_color()
+            self.lstDefectsAndColors.setEnabled(True)
+        else:
+            self.lstDefectsAndColors.setEnabled(False)
         self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
@@ -248,7 +276,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Set default annotation mode
     def annotation_mode_default(self):
         self.annotation_mode = self.ANNOTATION_MODE_MARKING_DEFECTS
-        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.current_paint = [MARK_COLOR_DEFECT_DEFAULT, MARK_COLOR_MASK][self.annotation_mode]
+        if self.annotation_mode == self.ANNOTATION_MODE_MARKING_DEFECTS:
+            self.change_brush_color()
+            self.lstDefectsAndColors.setEnabled(True)
+        else:
+            self.lstDefectsAndColors.setEnabled(False)
         self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
@@ -269,22 +302,23 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.annotator._overlayHandle is not None:
 
             # Depending on the mode, fill the mask appropriately
-            mask = self.annotator.export_ndarray_noalpha()
 
             # Marking defects
             if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
-                the_new_mask = np.zeros(self.img_shape, dtype=np.uint8)
+                self.status_bar_message("exporting_layers")
+                self.log("Exporting color layers...")
+                the_new_mask = self.annotator.export_rgb2gray_mask()  # Easy, as this is implemented in annotator
+                self.status_bar_message("ready")
+
             # Or updating the road edge mask
             else:
+                mask = self.annotator.export_ndarray_noalpha()
                 the_new_mask = 255 * np.ones(self.img_shape, dtype=np.uint8)
 
-            # NB! This approach beats np.where: it is 4.3 times faster!
-            reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
+                # NB! This approach beats np.where: it is 4.3 times faster!
+                reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
 
-            if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
-                m2 = list(MARK_COLOR_DEFECT.getRgb())[:-1]
-                the_new_mask[(reds == m2[0]) & (greens == m2[1]) & (blues == m2[2])] = 255
-            else:
+                # Set the mask according to the painted road mask
                 m1 = list(MARK_COLOR_MASK.getRgb())[:-1]
                 the_new_mask[(reds == m1[0]) & (greens == m1[1]) & (blues == m1[2])] = 0
 
@@ -302,12 +336,10 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             helper = 255*np.zeros((h,w,4), dtype=np.uint8)
             helper[self.current_helper == 0] = list(HELPER_COLOR.getRgb())
 
-            defects = np.zeros((h, w, 4), dtype=np.uint8)
-            defects[self.current_defects == 255] = list(MARK_COLOR_DEFECT.getRgb())
-
             self.annotator.clearAndSetImageAndMask(self.current_image,
-                                                   array2qimage(defects),
-                                                   array2qimage(helper))
+                                                   self.current_defects,
+                                                   array2qimage(helper),
+                                                   process_gray2rgb=True)
         else:
 
             # Remember, the mask must be inverted here, but saved properly
@@ -736,6 +768,59 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
     def update_button_states(self):  # TODO: Reserved for future use
         return
+
+    def read_defect_color_defs(self):  # Read the defect color definitions from the corresponding file
+        # Read the file
+        cspec = pd.read_csv(COLOR_DEF_PATH,
+                            delimiter=";", encoding='utf-8')
+        cspec_list = cspec.to_dict('records')
+
+        # Store the list
+        self.cspec = cspec_list
+
+    def add_colors_to_list(self):
+        if self.cspec is not None:
+
+            # Remove index change, if it is defined
+            try:
+                self.lstDefectsAndColors.disconnect()
+            except:
+                pass  # Do nothing, just a precaution
+
+            # Create the necessary dicts
+            g2rgb = {}
+            rgb2g = {}
+            for col in self.cspec:
+                rgb_val = col["COLOR_HEXRGB_DATMANT"]
+                g_val = int(col["COLOR_GSCALE_MAPPING"])
+
+                # Create the icon and populate the list
+                pix = QPixmap(50, 50)
+                pix.fill(QColor(rgb_val))
+                ticon = QIcon(pix)
+                self.lstDefectsAndColors.addItem(ticon, " " + col["COLOR_NAME_EN"] +
+                                                 " | " + col["COLOR_NAME_ET"])
+
+                # Fill in necessary dicts
+                g2rgb[g_val] = rgb_val
+                rgb2g[rgb_val] = g_val
+
+            # Set up dicts
+            self.d_rgb2gray = rgb2g
+            self.d_gray2rgb = g2rgb
+
+            # Change the brush color
+            self.lstDefectsAndColors.currentIndexChanged.connect(self.change_brush_color)
+
+        else:
+            self.log("Cannot add colors to the list, specification missing")
+
+    def change_brush_color(self):
+        cind = self.lstDefectsAndColors.currentIndex()
+        color = self.cspec[cind]
+        the_color = QColor("#63" + color["COLOR_HEXRGB_DATMANT"].split("#")[1])
+        self.current_paint = the_color
+        self.annotator.brush_fill_color = the_color
 
 
 def main():

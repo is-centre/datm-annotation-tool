@@ -2,11 +2,13 @@
 
 # Form implementation generated from reading ui file 'ui\datmant.ui'
 #
-# Created by: PyQt5 UI code generator 5.9.2
+# Created by: PyQt5 UI code generator 5.12.3
 #
 # WARNING! All changes made in this file will be lost!
 
+
 from PyQt5 import QtCore, QtGui, QtWidgets
+
 
 class Ui_DATMantMainWindow(object):
     def setupUi(self, DATMantMainWindow):
@@ -37,9 +39,34 @@ class Ui_DATMantMainWindow(object):
         self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
         self.line.setObjectName("line")
         self.verticalLayout_8.addWidget(self.line)
+        self.horizontalLayout_6 = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_6.setObjectName("horizontalLayout_6")
+        self.label_4 = QtWidgets.QLabel(self.gbAnnotWindow)
+        self.label_4.setMinimumSize(QtCore.QSize(100, 0))
+        font = QtGui.QFont()
+        font.setBold(False)
+        font.setWeight(50)
+        self.label_4.setFont(font)
+        self.label_4.setObjectName("label_4")
+        self.horizontalLayout_6.addWidget(self.label_4)
+        self.lstDefectsAndColors = QtWidgets.QComboBox(self.gbAnnotWindow)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.lstDefectsAndColors.sizePolicy().hasHeightForWidth())
+        self.lstDefectsAndColors.setSizePolicy(sizePolicy)
+        self.lstDefectsAndColors.setMinimumSize(QtCore.QSize(0, 30))
+        font = QtGui.QFont()
+        font.setBold(False)
+        font.setWeight(50)
+        self.lstDefectsAndColors.setFont(font)
+        self.lstDefectsAndColors.setObjectName("lstDefectsAndColors")
+        self.horizontalLayout_6.addWidget(self.lstDefectsAndColors)
+        self.verticalLayout_8.addLayout(self.horizontalLayout_6)
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
         self.label_2 = QtWidgets.QLabel(self.gbAnnotWindow)
+        self.label_2.setMinimumSize(QtCore.QSize(100, 0))
         font = QtGui.QFont()
         font.setBold(False)
         font.setWeight(50)
@@ -103,6 +130,7 @@ class Ui_DATMantMainWindow(object):
         self.txtImageHasDefectMask.setObjectName("txtImageHasDefectMask")
         self.gridLayout.addWidget(self.txtImageHasDefectMask, 3, 4, 1, 1)
         self.label_15 = QtWidgets.QLabel(self.gbAnnotWindow)
+        self.label_15.setMinimumSize(QtCore.QSize(100, 0))
         font = QtGui.QFont()
         font.setBold(False)
         font.setWeight(50)
@@ -126,6 +154,7 @@ class Ui_DATMantMainWindow(object):
         self.txtImageStatus.setObjectName("txtImageStatus")
         self.gridLayout.addWidget(self.txtImageStatus, 3, 2, 1, 1)
         self.label_14 = QtWidgets.QLabel(self.gbAnnotWindow)
+        self.label_14.setMinimumSize(QtCore.QSize(100, 0))
         font = QtGui.QFont()
         font.setBold(False)
         font.setWeight(50)
@@ -142,6 +171,7 @@ class Ui_DATMantMainWindow(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.label_3.sizePolicy().hasHeightForWidth())
         self.label_3.setSizePolicy(sizePolicy)
+        self.label_3.setMinimumSize(QtCore.QSize(100, 0))
         font = QtGui.QFont()
         font.setBold(False)
         font.setWeight(50)
@@ -201,7 +231,7 @@ class Ui_DATMantMainWindow(object):
         self.verticalLayout_2.addWidget(self.gbApplicationLog)
         DATMantMainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(DATMantMainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 820, 31))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 820, 22))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(self.menubar)
         self.menuFile.setObjectName("menuFile")
@@ -253,6 +283,7 @@ class Ui_DATMantMainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         DATMantMainWindow.setWindowTitle(_translate("DATMantMainWindow", "DATM annotation tool"))
         self.gbAnnotWindow.setTitle(_translate("DATMantMainWindow", "Annotation window"))
+        self.label_4.setText(_translate("DATMantMainWindow", "Annotated defect:"))
         self.label_2.setText(_translate("DATMantMainWindow", "Brush diameter:"))
         self.label_7.setText(_translate("DATMantMainWindow", "Image folder:"))
         self.btnBrowseImageDir.setText(_translate("DATMantMainWindow", "Browse..."))
@@ -281,4 +312,3 @@ class Ui_DATMantMainWindow(object):
         self.actionReload_original_mask.setText(_translate("DATMantMainWindow", "Reload original mask"))
         self.actionProcess_original_mask.setText(_translate("DATMantMainWindow", "Process original mask"))
         self.actionAIMask.setText(_translate("DATMantMainWindow", "Reload AUTO defect mask"))
-
