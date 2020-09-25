@@ -2,7 +2,7 @@ import os.path
 import cv2
 import numpy as np
 import collections
-from qimage2ndarray import rgb_view, alpha_view, array2qimage, recarray_view
+from qimage2ndarray import rgb_view, alpha_view, array2qimage, byte_view
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal, QT_VERSION_STR, QPoint
 from PyQt5.QtGui import QImage, QPixmap, QPainterPath, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QFileDialog, QApplication
@@ -53,6 +53,9 @@ class QtImageAnnotator(QGraphicsView):
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
 
+        # Shape of the loaded image (height, width)
+        self.shape = (None, None)
+
         # Store a local handle to the scene's current image pixmap.
         self._pixmapHandle = None  # This holds the image
         self._helperHandle = None # This holds the "helper" overlay which is not directly manipulated by the user
@@ -64,9 +67,16 @@ class QtImageAnnotator(QGraphicsView):
 
         self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
 
+        # Offscreen mask, used to speed things up (but has an impact on painting speed)
+        self._offscreen_mask = None
+        self._offscreen_mask_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
         # Needed for proper drawing
         self.lastPoint = QPoint()
         self.lastCursorLocation = QPoint()
+
+        # Direct mask painting
+        self.direct_mask_paint = False
 
         # Pixmap that contains the mask and the corresponding painter
         self.mask_pixmap = None
@@ -155,19 +165,35 @@ class QtImageAnnotator(QGraphicsView):
             return self._pixmapHandle.pixmap().toImage()
         return None
 
-
-    def clearAndSetImageAndMask(self, image, mask, helper=None, process_gray2rgb=False):
+    # Configure the annotator with data.
+    # NB! Breaking change. Both IMAGE and MASK arguments from version 1.0b are
+    # **assumed** to be numpy arrays!
+    #
+    # Named arguments:
+    # helper = additional layer which helps with the annotation process, its display can be toggled
+    # process_gray2rgb = whether the mask is supplied as a grayscale image which should be converted
+    #   to RGB on initialization (this process is rather fast). Conversion dictionaries must be set.
+    # direct_mask_paint = to speed up multicolor mask export, it may be beneficial to draw directly
+    #   on a hidden mask. Then, exporting it is super fast compared to converting the RGB mask to
+    #   a grayscale one.
+    def clearAndSetImageAndMask(self, image, mask, helper=None, process_gray2rgb=False, direct_mask_paint=False):
         # Clear the scene
         self.scene.clear()
+
+        # Set direct mask painting mode
+        self.direct_mask_paint = direct_mask_paint
 
         # Clear handles
         self._pixmapHandle = None
         self._helperHandle = None
         self._overlayHandle = None
-        self._overlayHandle = None
 
         # Clear UNDO stack
         self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
+        # For compatibility, convert IMAGE to QImage, if needed
+        if type(image) is np.array:
+            image = array2qimage(image)
 
         # First we just set the image
         if type(image) is QPixmap:
@@ -177,14 +203,26 @@ class QtImageAnnotator(QGraphicsView):
         else:
             raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
 
+        self.shape = pixmap.height(), pixmap.width()
+
         self._pixmapHandle = self.scene.addPixmap(pixmap)
         self.setSceneRect(QRectF(pixmap.rect()))
 
+        # Off-screen mask for direct drawing
+        if direct_mask_paint:
+            # We need to convert the offscreen mask to QImage at this point
+            gray_mask = QImage(mask.data, mask.shape[1], mask.shape[0], mask.strides[0], QImage.Format_Grayscale8)
+            self._offscreen_mask = gray_mask.copy()
+            self._offscreen_mask_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
         # Now we add the helper, if present
+        if type(helper) is np.array:
+            helper = array2qimage(helper)
+
         if helper is not None:
             if type(helper) is QPixmap:
                 pixmap = helper
-            elif type(image) is QImage:
+            elif type(helper) is QImage:
                 pixmap = QPixmap.fromImage(helper)
             else:
                 raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
@@ -199,19 +237,15 @@ class QtImageAnnotator(QGraphicsView):
                 h, w = mask.shape
                 new_mask = np.zeros((h, w, 4), np.uint8)
                 for gr, rgb in self.d_gray2rgb.items():
-                    col = QColor("#63" + rgb.split("#")[1]).getRgb()
+                    col = QColor("#63" + rgb.split("#")[1]).getRgb()  # TODO: not elegant, need external function
                     new_mask[mask == gr] = col
-                mask = array2qimage(new_mask)
+                use_mask = array2qimage(new_mask)
             else:
                 raise RuntimeError("Cannot convert the provided grayscale mask to RGB without color specifications.")
-
-        # Now we change the mask as well
-        if type(mask) is QPixmap:
-            pixmap = mask
-        elif type(mask) is QImage:
-            pixmap = QPixmap.fromImage(mask)
         else:
-            raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
+            use_mask = array2qimage(mask)
+
+        pixmap = QPixmap.fromImage(use_mask)
 
         self.mask_pixmap = pixmap
         self._overlayHandle = self.scene.addPixmap(self.mask_pixmap)
@@ -230,32 +264,10 @@ class QtImageAnnotator(QGraphicsView):
 
         self.updateViewer()
 
-    # Export the grayscale mask
-    def export_rgb2gray_mask(self):
-        if self._overlayHandle is not None:
-            if self.d_rgb2gray:
-
-                # Split the image to rgb components
-                rgb_m = self.export_ndarray_noalpha()
-                reds, greens, blues = rgb_m[:, :, 0], rgb_m[:, :, 1], rgb_m[:, :, 2]
-                h, w, _ = rgb_m.shape
-                mask = np.zeros((h, w), np.uint8)
-
-                # Go through all the colors and paint the grayscale mask according to the conversion spec
-                for rgb, gr in self.d_rgb2gray.items():
-                    cc = list(QColor(rgb).getRgb())
-                    mask[np.isclose(reds, cc[0], atol=PIXMAP_CONV_BUG_ATOL) &
-                         np.isclose(greens, cc[1], atol=PIXMAP_CONV_BUG_ATOL) &
-                         np.isclose(blues, cc[2], atol=PIXMAP_CONV_BUG_ATOL)] = gr
-            else:
-                raise RuntimeError("Cannot convert the RGB mask to grayscale without color specifications.")
-        else:
-            raise RuntimeError("There is no RGB mask to export to grayscale.")
-
-        return mask
-
     # Clear everything
     def clearAll(self):
+
+        self.shape = (None, None)
 
         if self._pixmapHandle is not None:
             self.scene.removeItem(self._pixmapHandle)
@@ -270,6 +282,10 @@ class QtImageAnnotator(QGraphicsView):
         self._helperHandle = None
         self._overlayHandle = None
 
+        if self.direct_mask_paint:
+            self._offscreen_mask = None
+            self._offscreen_mask_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
+
         self._overlay_stack = collections.deque(maxlen=MAX_CTRLZ_STATES)
         self.updateViewer()
 
@@ -277,8 +293,11 @@ class QtImageAnnotator(QGraphicsView):
     def setImage(self, image):
         """ Set the scene's current image pixmap to the input QImage or QPixmap.
         Raises a RuntimeError if the input image has type other than QImage or QPixmap.
-        :type image: QImage | QPixmap
+        :type image: QImage | QPixmap | numpy.array
         """
+        if type(image) is np.array:
+            image = array2qimage(image)
+
         if type(image) is QPixmap:
             pixmap = image
         elif type(image) is QImage:
@@ -400,42 +419,7 @@ class QtImageAnnotator(QGraphicsView):
             self._deleteCrossHandles[0].update()
             self._deleteCrossHandles[1].update()
 
-    def wheelEvent(self, event):
 
-        if self.hasImage():
-
-            self.redraw_cursor()
-
-            # Depending on whether control is pressed, set brush diameter accordingly
-            if QApplication.keyboardModifiers() & Qt.ControlModifier:
-                change = 1 if event.angleDelta().y() > 0 else -1
-                self.update_brush_diameter(change)
-                self.redraw_cursor()
-                self.mouseWheelRotated.emit(change)
-            else:
-                QGraphicsView.wheelEvent(self, event)
-
-    def mouseMoveEvent(self, event):
-
-        if self.hasImage():
-
-            self.update_cursor_location(event)
-
-            # Support for panning
-            if event.buttons() == Qt.MiddleButton:
-                offset = self.__prevMousePos - event.pos()
-                self.__prevMousePos = event.pos()
-                self.verticalScrollBar().setValue(self.verticalScrollBar().value() + offset.y())
-                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + offset.x())
-
-            # Filling in the markers
-            if event.buttons() == Qt.LeftButton:
-                self.drawMarkerLine(event)
-
-            # Store cursor location separately; needed for certain operations (like fill)
-            self.lastCursorLocation = self.mapToScene(event.pos())
-
-        QGraphicsView.mouseMoveEvent(self, event)
 
     # Draws a single ellipse
     def fillMarker(self, event):
@@ -459,6 +443,17 @@ class QtImageAnnotator(QGraphicsView):
         # lifecycle.
         self._overlayHandle.setPixmap(self.mask_pixmap)
 
+        # In case of direct mask paint mode, we need to paint on the mask as well
+        if self.direct_mask_paint:
+            if not self.d_rgb2gray:
+                raise RuntimeError("Cannot use direct mask painting since there is no color conversion rules set.")
+            painter = QPainter(self._offscreen_mask)
+            painter.setCompositionMode(self.current_painting_mode)
+            tc = self.d_rgb2gray[self.brush_fill_color.name()]
+            painter.setPen(QColor(tc,tc,tc))
+            painter.setBrush(QColor(tc,tc,tc))
+            painter.drawEllipse(a0, b0, r0, r0)
+
         self.lastPoint = scenePos
 
     # Draws a line
@@ -470,6 +465,18 @@ class QtImageAnnotator(QGraphicsView):
                             self.brush_diameter, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawLine(self.lastPoint, scenePos)
         self._overlayHandle.setPixmap(self.mask_pixmap)
+
+        # In case of direct mask paint mode, we need to paint on the mask as well
+        if self.direct_mask_paint:
+            if not self.d_rgb2gray:
+                raise RuntimeError("Cannot use direct mask painting since there is no color conversion rules set.")
+            painter = QPainter(self._offscreen_mask)
+            painter.setCompositionMode(self.current_painting_mode)
+            tc = self.d_rgb2gray[self.brush_fill_color.name()]
+            painter.setPen(QPen(QColor(tc, tc, tc),
+                           self.brush_diameter, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawLine(self.lastPoint, scenePos)
+
         self.lastPoint = scenePos
 
     # Fills an area using the last stored cursor location
@@ -479,6 +486,9 @@ class QtImageAnnotator(QGraphicsView):
 
         # Store previous state so we can go back to it
         self._overlay_stack.append(self.mask_pixmap.copy())
+
+        if self.direct_mask_paint:
+            self._offscreen_mask_stack.append(self._offscreen_mask.copy())
 
         # We first convert the mask to a QImage and then to ndarray
         orig_mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
@@ -528,8 +538,21 @@ class QtImageAnnotator(QGraphicsView):
             new_img[np.where((paintin==255))] = list(self.brush_fill_color.getRgb())
         else:
             new_img[np.where((paintin==0))] = (0,0,0,0)  # Erase
-
         new_qimg = array2qimage(new_img)
+
+        # In case of direct drawing, need to update the offscreen mask as well
+        if self.direct_mask_paint:
+            omask = byte_view(self._offscreen_mask).copy()
+            omask = omask.reshape(omask.shape[:-1])
+            if not remove_closed_contour:
+                tc = self.d_rgb2gray[self.brush_fill_color.name()]
+                omask[np.where((paintin==255))] = tc
+            else:
+                omask[np.where((paintin==0))] = 0
+            self._offscreen_mask = QImage(omask.data, omask.shape[1], omask.shape[0], omask.strides[0],
+                                          QImage.Format_Grayscale8)
+
+        # Finally update the screen stuff
         self.mask_pixmap = QPixmap.fromImage(new_qimg)
         self._overlayHandle.setPixmap(self.mask_pixmap)
 
@@ -537,6 +560,8 @@ class QtImageAnnotator(QGraphicsView):
     def repaintArea(self):
 
         self._overlay_stack.append(self.mask_pixmap.copy())
+        if self.direct_mask_paint:
+            self._offscreen_mask_stack.append(self._offscreen_mask.copy())
         orig_mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
         msk = alpha_view(orig_mask).copy()
         msk[np.where((msk>0))] = 255
@@ -549,8 +574,111 @@ class QtImageAnnotator(QGraphicsView):
         new_img = np.dstack((rgb_view(orig_mask), alpha_view(orig_mask)))
         new_img[np.where((paintin == 0))] = list(self.brush_fill_color.getRgb())
         new_qimg = array2qimage(new_img)
+
+        if self.direct_mask_paint:
+            omask = byte_view(self._offscreen_mask).copy()
+            omask = omask.reshape(omask.shape[:-1])
+            tc = self.d_rgb2gray[self.brush_fill_color.name()]
+            omask[np.where((paintin == 0))] = tc
+            self._offscreen_mask = QImage(omask.data, omask.shape[1], omask.shape[0], omask.strides[0],
+                                          QImage.Format_Grayscale8)
+
         self.mask_pixmap = QPixmap.fromImage(new_qimg)
         self._overlayHandle.setPixmap(self.mask_pixmap)
+
+
+    '''
+    ***********************
+    IMPORTERS AND EXPORTERS
+    ***********************
+    '''
+
+    # Export the grayscale mask
+    # This should always be used with direct mode, which supports up to 255 colors for the mask
+    def export_rgb2gray_mask(self):
+        if self._overlayHandle is not None:
+            if self.d_rgb2gray:
+
+                if self.direct_mask_paint:
+                    # Easy mode
+                    mask = byte_view(self._offscreen_mask).copy()
+                    mask = mask.reshape(mask.shape[:-1])
+                else:
+                    # The hard way
+                    # Split the image to rgb components
+                    rgb_m = self.export_ndarray_noalpha()
+                    reds, greens, blues = rgb_m[:, :, 0], rgb_m[:, :, 1], rgb_m[:, :, 2]
+                    h, w, _ = rgb_m.shape
+                    mask = np.zeros((h, w), np.uint8)
+
+                    # Go through all the colors and paint the grayscale mask according to the conversion spec
+                    for rgb, gr in self.d_rgb2gray.items():
+                        cc = list(QColor(rgb).getRgb())
+                        mask[np.isclose(reds, cc[0], atol=PIXMAP_CONV_BUG_ATOL) &
+                             np.isclose(greens, cc[1], atol=PIXMAP_CONV_BUG_ATOL) &
+                             np.isclose(blues, cc[2], atol=PIXMAP_CONV_BUG_ATOL)] = gr
+            else:
+                raise RuntimeError("Cannot convert the RGB mask to grayscale without color specifications.")
+        else:
+            raise RuntimeError("There is no RGB mask to export to grayscale.")
+        return mask
+
+    # Export current mask WITHOUT alpha channel (mask types are determined by colors, not by alpha anyway)
+    def export_ndarray_noalpha(self):
+        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        return rgb_view(mask).copy()
+
+    def export_ndarray(self):
+        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+        return np.dstack((rgb_view(mask).copy(), alpha_view(mask).copy()))
+
+    '''
+    **************
+    EVENT HANDLERS
+    **************
+    '''
+
+    def wheelEvent(self, event):
+
+        if self.hasImage():
+
+            self.redraw_cursor()
+
+            # Depending on whether control is pressed, set brush diameter accordingly
+            if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                change = 1 if event.angleDelta().y() > 0 else -1
+                self.update_brush_diameter(change)
+                self.redraw_cursor()
+                self.mouseWheelRotated.emit(change)
+            else:
+                QGraphicsView.wheelEvent(self, event)
+
+    def mouseMoveEvent(self, event):
+
+        if self.hasImage():
+
+            # Make sure that the element has focus when the mouse moves,
+            # otherwise keyboard shortcuts will not work
+            if not self.hasFocus():
+                self.setFocus()
+
+            self.update_cursor_location(event)
+
+            # Support for panning
+            if event.buttons() == Qt.MiddleButton:
+                offset = self.__prevMousePos - event.pos()
+                self.__prevMousePos = event.pos()
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() + offset.y())
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + offset.x())
+
+            # Filling in the markers
+            if event.buttons() == Qt.LeftButton:
+                self.drawMarkerLine(event)
+
+            # Store cursor location separately; needed for certain operations (like fill)
+            self.lastCursorLocation = self.mapToScene(event.pos())
+
+        QGraphicsView.mouseMoveEvent(self, event)
 
     # Keypress event handler
     def keyPressEvent(self, event):
@@ -633,7 +761,10 @@ class QtImageAnnotator(QGraphicsView):
                     if (len(self._overlay_stack) > 0):
                         self.mask_pixmap = self._overlay_stack.pop()
                         self._overlayHandle.setPixmap(self.mask_pixmap)
-                        # self.updateViewer()
+
+                    if self.direct_mask_paint:
+                        if len(self._offscreen_mask_stack) > 0:
+                            self._offscreen_mask = self._offscreen_mask_stack.pop()
 
             # When CONTROL is pressed, show the delete cross
             if event.key() == Qt.Key_Control and not self.global_erase_override:
@@ -665,6 +796,8 @@ class QtImageAnnotator(QGraphicsView):
             if event.button() == Qt.LeftButton:
 
                 self._overlay_stack.append(self.mask_pixmap.copy())
+                if self.direct_mask_paint:
+                    self._offscreen_mask_stack.append(self._offscreen_mask.copy())
 
                 # If ALT is held, replace color
                 repaint_was_active = False
@@ -743,15 +876,6 @@ class QtImageAnnotator(QGraphicsView):
                     self.updateViewer()
                 self.rightMouseButtonDoubleClicked.emit(scenePos.x(), scenePos.y())
         QGraphicsView.mouseDoubleClickEvent(self, event)
-
-    # Export current mask WITHOUT alpha channel (mask types are determined by colors, not by alpha anyway)
-    def export_ndarray_noalpha(self):
-        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
-        return rgb_view(mask).copy()
-
-    def export_ndarray(self):
-        mask = self.mask_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
-        return np.dstack((rgb_view(mask).copy(), alpha_view(mask).copy()))
 
 if __name__ == '__main__':
     import sys

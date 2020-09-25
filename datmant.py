@@ -339,7 +339,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.annotator.clearAndSetImageAndMask(self.current_image,
                                                    self.current_defects,
                                                    array2qimage(helper),
-                                                   process_gray2rgb=True)
+                                                   process_gray2rgb=True,
+                                                   direct_mask_paint=True)
         else:
 
             # Remember, the mask must be inverted here, but saved properly
@@ -348,7 +349,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             mask[self.current_updated_mask == 0] = list(MARK_COLOR_MASK.getRgb())
 
             self.annotator.clearAndSetImageAndMask(self.current_image,
-                                                   array2qimage(mask))
+                                                   mask)
 
     def process_mask(self):
 
@@ -791,7 +792,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             g2rgb = {}
             rgb2g = {}
             for col in self.cspec:
-                rgb_val = col["COLOR_HEXRGB_DATMANT"]
+                rgb_val = col["COLOR_HEXRGB_DATMANT"].lower()
                 g_val = int(col["COLOR_GSCALE_MAPPING"])
 
                 # Create the icon and populate the list
