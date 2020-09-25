@@ -2,7 +2,9 @@ import cv2
 import numpy as np
 import shapefile
 import os
+from PyQt5.QtGui import QColor
 
+SHAPETYPES = ['KPIKIPR', 'KVUUK', 'PAIK_J', 'POIKPR', 'SERV', 'VORK', 'PAIK', 'MUREN', 'AUK']
 
 # Produces tehnokeskuse defect mask (library version)
 def filimage(path, shpath, fname):
@@ -31,6 +33,8 @@ def filimage(path, shpath, fname):
 
     pnts, tyyp = getdefects(shpath, xmin, xmax, ymin, ymax, koord)
 
+    print(tyyp)
+
     # different defects are drawn in different colors, can be replaced with a single color
     colors = [(128, 0, 255), (128, 0, 255), (128, 0, 255), (128, 0, 255),
               (128, 0, 255), (128, 0, 255), (128, 0, 255), (128, 0, 255),
@@ -54,10 +58,52 @@ def filimage(path, shpath, fname):
 
     return img2
 
+# Produces tehnokeskuse defect mask as the helper layer
+def generate_tk_defects_layer(path, shpath, fname, colordefs):
+
+    # The shape file is assumed to be one directory up than the orthophotos
+    path = path.strip("\\")  # Remove trailing slash
+    path += os.path.sep  # Reintroduce trailing slash
+
+    mask = cv2.imread(path + fname + '.mask.png', 0)
+
+    # Need to generate an empty transparent image
+    h, w = mask.shape[:2]
+    img = np.zeros((h,w,4), 'uint8')
+
+    # read the vrt parameters
+    koord = runvrt(path + fname + '.vrt')
+
+    xmin = koord[0]
+    xmax = koord[0] + koord[1] * (w - 1)
+    ymin = koord[3] + koord[5] * (h - 1)
+    ymax = koord[3]
+
+    pnts, tyyp = getdefects(shpath, xmin, xmax, ymin, ymax, koord)
+
+    for i in range(0, len(tyyp)):
+
+        pp = np.asarray(pnts[i], dtype=np.int32)
+
+        col = colordefs[SHAPETYPES[tyyp[i]]]
+        rgb = list(QColor(col).getRgb())[:-1]
+        rgb.append(99)
+
+        if tyyp[i] < 5:  # joondefektid
+            cv2.polylines(img, [pp], False, rgb, 40)
+        if 4 < tyyp[i] < 8:  # pinddefektid
+            cv2.fillPoly(img, [pp], rgb)
+        if tyyp[i] == 8:
+            cv2.circle(img, pnts[i][0], 50, rgb, 25)
+
+    # Mask away pixels
+    img[mask==0] = (0, 0, 0, 0)
+
+    return img
+
 
 def getdefects(path, xmin, xmax, ymin, ymax, koord):
     deflist = ['defects_polygon', 'defects_line', 'defects_point']
-    kujutyybid = ['KPIKIPR', 'KVUUK', 'PAIK_J', 'POIKPR', 'SERV', 'VORK', 'PAIK', 'MUREN', 'AUK']
 
     cnt = np.zeros((9,), dtype=int)
     points = []
@@ -96,7 +142,7 @@ def getdefects(path, xmin, xmax, ymin, ymax, koord):
                 # now the defect points are in points
 
                 rec = kuju.shapeRecord(i)
-                indices = [l for l, s in enumerate(kujutyybid) if
+                indices = [l for l, s in enumerate(SHAPETYPES) if
                            rec.record[2] == s]  # the index of the defect type, isnt indices a scalar?
                 cnt[indices[0]] += 1  # cnt is a summary over the image
                 rike[k] = indices[0]

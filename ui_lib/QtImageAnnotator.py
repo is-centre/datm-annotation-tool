@@ -59,9 +59,13 @@ class QtImageAnnotator(QGraphicsView):
         # Store a local handle to the scene's current image pixmap.
         self._pixmapHandle = None  # This holds the image
         self._helperHandle = None # This holds the "helper" overlay which is not directly manipulated by the user
+        self._auxHelper = None  # Aux helper for various purpuses
         self._overlayHandle = None  # This is the overlay over which we are painting
         self._cursorHandle = None  # This is the cursor that appears to assist with brush size
         self._deleteCrossHandles = None # For showing that we've activated delete mode
+
+        # Helper display state
+        self.showHelper = True
 
         self._lastCursorCoords = None # Latest coordinates of the cursor, need in some cursor overlay update operations
 
@@ -176,7 +180,8 @@ class QtImageAnnotator(QGraphicsView):
     # direct_mask_paint = to speed up multicolor mask export, it may be beneficial to draw directly
     #   on a hidden mask. Then, exporting it is super fast compared to converting the RGB mask to
     #   a grayscale one.
-    def clearAndSetImageAndMask(self, image, mask, helper=None, process_gray2rgb=False, direct_mask_paint=False):
+    def clearAndSetImageAndMask(self, image, mask, helper=None, aux_helper=None,
+                                process_gray2rgb=False, direct_mask_paint=False):
         # Clear the scene
         self.scene.clear()
 
@@ -186,6 +191,7 @@ class QtImageAnnotator(QGraphicsView):
         # Clear handles
         self._pixmapHandle = None
         self._helperHandle = None
+        self._auxHelper = None
         self._overlayHandle = None
 
         # Clear UNDO stack
@@ -229,6 +235,20 @@ class QtImageAnnotator(QGraphicsView):
 
             # Add the helper layer
             self._helperHandle = self.scene.addPixmap(pixmap)
+
+        if type(aux_helper) is np.array:
+            aux_helper = array2qimage(aux_helper)
+
+        if aux_helper is not None:
+            if type(aux_helper) is QPixmap:
+                pixmap = aux_helper
+            elif type(aux_helper) is QImage:
+                pixmap = QPixmap.fromImage(aux_helper)
+            else:
+                raise RuntimeError("QtImageAnnotator.clearAndSetImageAndMask: Argument must be a QImage or QPixmap.")
+
+            # Add the aux helper layer
+            self._auxHelper = self.scene.addPixmap(pixmap)
 
         # If we are supplied a grayscale mask that we need to convert to RGB, we will do it here
         if process_gray2rgb:
@@ -754,6 +774,16 @@ class QtImageAnnotator(QGraphicsView):
             # Temporarily hide the overlay
             if event.key() == Qt.Key_H:
                 self._overlayHandle.hide()
+
+            # Toggle helper on and off
+            if event.key() == Qt.Key_T:
+                if self._auxHelper is not None:
+                    if self.showHelper:
+                        self._auxHelper.hide()
+                        self.showHelper = False
+                    else:
+                        self._auxHelper.show()
+                        self.showHelper = True
 
             # Undo operations
             if event.key() == Qt.Key_Z:

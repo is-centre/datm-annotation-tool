@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 from qimage2ndarray import array2qimage
 
-from lib.tkmask import filimage
+from lib.tkmask import generate_tk_defects_layer
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
 # Specific UI features
@@ -87,6 +87,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Color definitions
     cspec = None
 
+    # For TK
+    tk_colors = None
+
     current_paint = None  # Paint of the brush
 
     # Color conversion dicts
@@ -97,6 +100,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     current_image = None  # Original image
     current_mask = None  # Original mask
     current_helper = None  # Helper mask
+    current_tk = None  # Defects mareked by TK
 
     # User-updatable items
     current_defects = None  # Defects mask
@@ -333,12 +337,13 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
-            helper = 255*np.zeros((h,w,4), dtype=np.uint8)
+            helper = np.zeros((h,w,4), dtype=np.uint8)
             helper[self.current_helper == 0] = list(HELPER_COLOR.getRgb())
 
             self.annotator.clearAndSetImageAndMask(self.current_image,
                                                    self.current_defects,
                                                    array2qimage(helper),
+                                                   aux_helper=(array2qimage(self.current_tk) if self.actionLoad_marked_image.isChecked() else None),
                                                    process_gray2rgb=True,
                                                    direct_mask_paint=True)
         else:
@@ -387,9 +392,11 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             if self.actionLoad_marked_image.isChecked():
                 try:
                     self.log("Drawing defect marks on original image...")
-                    img2 = filimage(self.txtImageDir.text(), self.txtShpDir.text(), img_name_no_ext)
-                    self.current_image = QImage(array2qimage(img2))
-                except:
+                    self.current_image = QImage(img_path + ".jpg")
+                    img_tk = generate_tk_defects_layer(self.txtImageDir.text(), self.txtShpDir.text(),
+                                                    img_name_no_ext, self.tk_colors)
+                    self.current_tk = img_tk
+                except Exception as e:
                     self.actionLoad_marked_image.setChecked(False)
                     self.log("Could not find or load the shapefile data. Will load the original image instead.")
                     self.current_image = QImage(img_path + ".jpg")
@@ -791,9 +798,15 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Create the necessary dicts
             g2rgb = {}
             rgb2g = {}
+            tk2rgb = {}
+
             for col in self.cspec:
                 rgb_val = col["COLOR_HEXRGB_DATMANT"].lower()
                 g_val = int(col["COLOR_GSCALE_MAPPING"])
+
+                keys_to_insert = col["COLOR_ABBR_ET"].split(",")
+                for ks in keys_to_insert:
+                    tk2rgb[ks.strip()] = col["COLOR_HEXRGB_TK"]
 
                 # Create the icon and populate the list
                 pix = QPixmap(50, 50)
@@ -809,6 +822,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Set up dicts
             self.d_rgb2gray = rgb2g
             self.d_gray2rgb = g2rgb
+            self.tk_colors = tk2rgb
 
             # Change the brush color
             self.lstDefectsAndColors.currentIndexChanged.connect(self.change_brush_color)
