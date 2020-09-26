@@ -172,7 +172,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
-        self.actionLoad_marked_image.triggered.connect(self.load_image)
         self.actionProcess_original_mask.triggered.connect(self.process_mask)
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
@@ -343,7 +342,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             self.annotator.clearAndSetImageAndMask(self.current_image,
                                                    self.current_defects,
                                                    array2qimage(helper),
-                                                   aux_helper=(array2qimage(self.current_tk) if self.actionLoad_marked_image.isChecked() else None),
+                                                   aux_helper=(array2qimage(self.current_tk) if self.current_tk is not None else None),
                                                    process_gray2rgb=True,
                                                    direct_mask_paint=True)
         else:
@@ -388,20 +387,19 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
 
-            # Load the image; if we must add some previous annotation to the image, try to do it here
-            if self.actionLoad_marked_image.isChecked():
-                try:
-                    self.log("Drawing defect marks on original image...")
-                    self.current_image = QImage(img_path + ".jpg")
-                    img_tk = generate_tk_defects_layer(self.txtImageDir.text(), self.txtShpDir.text(),
-                                                    img_name_no_ext, self.tk_colors)
-                    self.current_tk = img_tk
-                except Exception as e:
-                    self.actionLoad_marked_image.setChecked(False)
-                    self.log("Could not find or load the shapefile data. Will load the original image instead.")
-                    self.current_image = QImage(img_path + ".jpg")
-            else:
+            # Load the image
+            try:
+                self.log("Drawing defect marks on original image...")
                 self.current_image = QImage(img_path + ".jpg")
+                img_tk = generate_tk_defects_layer(self.txtImageDir.text(), self.txtShpDir.text(),
+                                                    img_name_no_ext, self.tk_colors)
+                self.current_tk = img_tk
+            except Exception as e:
+                self.actionLoad_marked_image.setChecked(False)
+                self.log("Could not find or load the shapefile data. Will load only the image.")
+                self.current_image = QImage(img_path + ".jpg")
+                self.curent_tk = None
+
 
             # Shape of the image
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
@@ -715,6 +713,8 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.log('Changed defect shapefile directory to ' + dir)
 
+            self.load_image()
+
 
     # Locate working directory with files
     def browse_image_directory(self):
@@ -836,6 +836,43 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         the_color = QColor("#63" + color["COLOR_HEXRGB_DATMANT"].split("#")[1])
         self.current_paint = the_color
         self.annotator.brush_fill_color = the_color
+
+    '''
+    **********
+    KEY EVENTS
+    **********
+    '''
+    def keyPressEvent(self, event):
+        # Some additional shortcuts for quickly selecting defect types
+        if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            max_index = self.lstDefectsAndColors.count()-1
+            if event.key() == Qt.Key_1:
+                if max_index >= 0:
+                    self.lstDefectsAndColors.setCurrentIndex(0)
+            if event.key() == Qt.Key_2:
+                if max_index >= 1:
+                    self.lstDefectsAndColors.setCurrentIndex(1)
+            if event.key() == Qt.Key_3:
+                if max_index >= 2:
+                    self.lstDefectsAndColors.setCurrentIndex(2)
+            if event.key() == Qt.Key_4:
+                if max_index >= 3:
+                    self.lstDefectsAndColors.setCurrentIndex(3)
+            if event.key() == Qt.Key_5:
+                if max_index >= 4:
+                    self.lstDefectsAndColors.setCurrentIndex(4)
+            if event.key() == Qt.Key_6:
+                if max_index >= 5:
+                    self.lstDefectsAndColors.setCurrentIndex(5)
+            if event.key() == Qt.Key_7:
+                if max_index >= 6:
+                    self.lstDefectsAndColors.setCurrentIndex(6)
+            if event.key() == Qt.Key_8:
+                if max_index >= 7:
+                    self.lstDefectsAndColors.setCurrentIndex(7)
+            if event.key() == Qt.Key_9:
+                if max_index >= 8:
+                    self.lstDefectsAndColors.setCurrentIndex(8)
 
 
 def main():

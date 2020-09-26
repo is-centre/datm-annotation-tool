@@ -2,18 +2,16 @@
 
 # Form implementation generated from reading ui file 'ui\datmant.ui'
 #
-# Created by: PyQt5 UI code generator 5.12.3
+# Created by: PyQt5 UI code generator 5.9.2
 #
 # WARNING! All changes made in this file will be lost!
 
-
 from PyQt5 import QtCore, QtGui, QtWidgets
-
 
 class Ui_DATMantMainWindow(object):
     def setupUi(self, DATMantMainWindow):
         DATMantMainWindow.setObjectName("DATMantMainWindow")
-        DATMantMainWindow.resize(820, 620)
+        DATMantMainWindow.resize(1307, 862)
         DATMantMainWindow.setMinimumSize(QtCore.QSize(820, 620))
         self.centralwidget = QtWidgets.QWidget(DATMantMainWindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -231,7 +229,7 @@ class Ui_DATMantMainWindow(object):
         self.verticalLayout_2.addWidget(self.gbApplicationLog)
         DATMantMainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(DATMantMainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 820, 22))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1307, 36))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(self.menubar)
         self.menuFile.setObjectName("menuFile")
@@ -267,7 +265,6 @@ class Ui_DATMantMainWindow(object):
         self.actionAIMask.setObjectName("actionAIMask")
         self.menuFile.addAction(self.actionSave_current_annotations)
         self.menuFile.addAction(self.actionReload_original_mask)
-        self.menuView.addAction(self.actionLoad_marked_image)
         self.menuView.addSeparator()
         self.menuView.addAction(self.actionLog)
         self.menuEdit.addAction(self.actionProcess_original_mask)
@@ -294,8 +291,7 @@ class Ui_DATMantMainWindow(object):
         self.btnBrowseShp.setText(_translate("DATMantMainWindow", "Browse..."))
         self.btnPrev.setText(_translate("DATMantMainWindow", "[P] Previous image"))
         self.btnPrev.setShortcut(_translate("DATMantMainWindow", "P"))
-        self.btnClear.setText(_translate("DATMantMainWindow", "[R] Clear current annotations"))
-        self.btnClear.setShortcut(_translate("DATMantMainWindow", "R"))
+        self.btnClear.setText(_translate("DATMantMainWindow", "Clear current annotations"))
         self.btnMode.setText(_translate("DATMantMainWindow", "Mode [Marking defects]"))
         self.btnMode.setShortcut(_translate("DATMantMainWindow", "M"))
         self.btnNext.setText(_translate("DATMantMainWindow", "[N] Next image"))
@@ -312,3 +308,4 @@ class Ui_DATMantMainWindow(object):
         self.actionReload_original_mask.setText(_translate("DATMantMainWindow", "Reload original mask"))
         self.actionProcess_original_mask.setText(_translate("DATMantMainWindow", "Process original mask"))
         self.actionAIMask.setText(_translate("DATMantMainWindow", "Reload AUTO defect mask"))
+

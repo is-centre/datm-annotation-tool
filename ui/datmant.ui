@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>820</width>
-    <height>620</height>
+    <width>1307</width>
+    <height>862</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -358,10 +358,7 @@
             <bool>true</bool>
            </property>
            <property name="text">
-            <string>[R] Clear current annotations</string>
-           </property>
-           <property name="shortcut">
-            <string>R</string>
+            <string>Clear current annotations</string>
            </property>
           </widget>
          </item>
@@ -434,8 +431,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>820</width>
-     <height>22</height>
+     <width>1307</width>
+     <height>36</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -449,7 +446,6 @@
     <property name="title">
      <string>View</string>
     </property>
-    <addaction name="actionLoad_marked_image"/>
     <addaction name="separator"/>
     <addaction name="actionLog"/>
    </widget>
