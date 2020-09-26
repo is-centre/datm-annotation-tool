@@ -1,8 +1,8 @@
 # datm-annotation-tool
 datm-annotation-tool is a PyQt5 application intended for annotating road segment orthoframes in two ways:
 
-* Masking out the paved area of the road, this usually means to correct an existing mask;
-* Marking pavement defects by painting over them.
+* Marking pavement defects by painting over them with different colors depending on the type of defect;
+* Masking out the paved area of the road, this usually means to correct an existing mask.
 
 Both of these goals are achieved using painting tools implemented in a standalone component **QtImageAnnotator** derived from [PyQtImageViewer](https://github.com/marcel-goldschen-ohm/PyQtImageViewer). This component can be used separately from the application. It is available in the `ui_lib` folder.
 
