@@ -6,9 +6,22 @@ datm-annotation-tool is a PyQt5 application intended for annotating road segment
 
 Both of these goals are achieved using painting tools implemented in a standalone component **QtImageAnnotator** derived from [PyQtImageViewer](https://github.com/marcel-goldschen-ohm/PyQtImageViewer). This component can be used separately from the application. It is available in the `ui_lib` folder.
 
-Note that for large images (over 4k by 4k resolution in either dimension) the painting will become slower (though still possible).
+Note that for large images (over 4k by 4k resolution in either dimension) the painting will become slower.
 
 Basic instructions on how to use the tool are provided next.
+
+### New in Version 1.0
+
+Version 1.0 marks the transition from single color defect in-painting to support different colors for different defects. This relationship is set up in the `.csv` file that can be found under `defs/color_defs.csv`.  Accordingly, some productivity features were introduced to help with the annotation workflow:
+
+* The list of colors has been added according to the specifications. It can be viewed also by going to **View→Color specifications**. The types of defects currently annotated can be switched quickly from the keyboard by **pressing the corresponding number keys** listed in the color specification dialog box.
+* Defect masks are now exported in grayscale based on a mapping defined in the color specification. No changes in road area masking process.
+* It is possible to **repaint** a connected contour by alt-left clicking over the pixels of the desired color. It can be useful for taking “undefined” defects and repainting them. Note however that at the moment, if other defects are connected to the repainted one with at least 1 pixel, the whole contour will be repainted.
+* **[CTRL]+[X]** over a connected contour of the current paint color will remove that contour. Tip: to quickly remove a contour that is connected to something else, **[SHIFT]+left click** along the border of the contour to disconnect it from the surrounding contours, and then use this feature on the contour.
+* **[CTRL]+[Q]** over a connected contour of any color or a mix of colors will remove it completely irrespective of colors.
+* The TK layer, if available, can be toggled on and off using **[T]** shortcut key on the keyboard.
+* There should be full backwards-compatibility with the previous version (old masks can be loaded). However, the new “undefined” defect color is white.
+* Some redundant features (mostly useless menu entries) were removed.
 
 ### Installation
 
@@ -36,15 +49,15 @@ After starting the tool, you are presented with the following interface:
 
 The first thing to do, is to browse to the folder that contains the orthoframes of interest. To do this, click on the **Browse...** button in the bottom portion of the interface. Note, that every orthoframe image `FILENAME.jpg` file in the folder is assumed to have particular companion files:
 
-* `FILENAME.marked.jpg`: this file should contain defect markings painted over pavement distress. The Python script for creating these files is available separately. For testing purposes, you can simple create these files by adding `.marked` to the end of the file name before the extension.
 * `FILENAME.mask.png`: the initial mask of the paved road part of the image. If it does not exist, an empty mask will be used.
 * `FILENAME.vrt`: file with image geometry data (optional): necessary for marking defects if they are already stored in a relevant shapefile database (see below).
 * `FILENAME.predicted_defects.png` (optional): automatically generated defect masks to be manually processed (if available).
 
-Also note that the tool will produce the following files for every processed orthoframe:
+Secondly, if preprocessed “Tehnokeskuse” (TK) defect layers are present, then Defect .shp folder should be selected by clicking the corresponding **Browse...** button and selecting the folder. Note that it is assumed the folder has the following types of shapefiles (`.shp`) with their support files:
 
-* `FILENAME.cut.mask_v2.png`: The manually corrected mask (usually some manual correction is required). If no correction is made to the original mask, this file will contain a copy of the original mask.
-* `FILENAME.defect.mask.png`: The mask for defects found on the orthoframe.
+* `defects_line.*`: defects marked as lines;
+* `defects_point.*`: defects marked as points;
+* `defects_polygon.*`: defects marked as polygons.
 
 Once the folder with orthoframes of interest is selected, the first orthoframe found in the folder will be automatically loaded into the tool:
 
@@ -55,6 +68,11 @@ Once the folder with orthoframes of interest is selected, the first orthoframe f
 
 
 You can expand the tool by either manually resizing its window or by double-clicking the title bar and begin the annotation process.
+
+The tool will produce the following files for every processed orthoframe:
+
+* `FILENAME.cut.mask_v2.png`: The manually corrected mask (usually some manual correction is required). If no correction is made to the original mask, this file will contain a copy of the original mask.
+* `FILENAME.defect.mask.png`: The mask for defects found on the orthoframe.
 
 #### Annotating Orthoframes: Tutorial
 
@@ -67,15 +85,21 @@ It is assumed that a typical computer mouse with three buttons and a scroll whee
 **Painting tools:**
 
 * To change the painting mode (defects or mask in-painting), use the button on the bottom of the UI. The color of the button also hints at the colors with which defects and non-paved areas are marked: blue and red, respectively.
-* To paint over a defect or unpaved area (depending on the mode), **left click and drag.****
-* To erase any paint (any annotation is erased independent on the mode!), either switch to **delete mode** by pressing **[D]** on the keyboard, or use **control-left click** in normal painting mode. Either way, you will see an X painted over the brush cursor that symbolizes that you have entered delete mode.
+* To change the  type of defect that is being annotated, click on the **Annotated defect**  combo box and choose the correct defect type. Alternatively, you can use number shortcuts on the keyboard: **[1]** will select the first defect type, **[2]** the second defect type and so on until **[9]**.
+* Color specifications can be accessed from the menu by going to View→Color specifications. A pop up window will appear.
+* To paint over a defect or unpaved area (depending on the mode), **left click and drag.**
+* To erase any paint (any annotation is erased independent on the mode!), either switch to **delete mode** by pressing **[D]** on the keyboard, or use **[CTRL]-left click** in normal painting mode. Either way, you will see an X painted over the brush cursor that symbolizes that you have entered delete mode.
 * To temporarily hide annotations, press and hold the **[H]** key on the keyboard.
-* To change brush size, **rotate the mouse wheel** while **holding control**. You can also change the size of the brush using the corresponding slider in the UI.
-* To create *line segments*, **left click** once at the starting point and then **shift-left click** at the end point.
-* To fill bounded areas with selected brush color, position the brush over the area and press **[F]** on the keyboard.
-* There is also a 20 step buffer for undoing incorrect painting operations via the usual shortcut **CTRL+Z**. Note however that a forward step is not yet available, so once undone you cannot reverse the operation via CTRL+Y.
+* To toggle the display of the TK defect layer, press **[T]** key on the keyboard.
+* To change brush size, **rotate the mouse wheel** while **holding [CTRL]**. You can also change the size of the brush using the corresponding slider in the UI.
+* To create *line segments*, **left click** once at the starting point and then **[SHIFT]-left click** at the end point.
+* To fill bounded areas with selected brush color, position the brush over an empty area and press **[F]** on the keyboard. The currently selected color will be used. Note that other color strokes will block the fill.
+* To remove a connected contour having the current color, hover over the contour you wish to remove and press **[CTRL]+[X]**.
+* To remove a connected contour regardless of color, hover over the contour and press **[CTRL]+[Q]**.
+* To repaint a connected contour regardless of color, hover over the contour and use **[ALT]-left click**.
+* There is also a 20 step buffer for undoing incorrect painting operations via the usual shortcut **[CTRL]+[Z]**. Note however that a forward step is not yet available, so once undone you cannot reverse the operation via [CTRL]+[Y].
 
-At the moment, the **[R]** *Clear ALL annotations* feature is not functional yet.
+At the moment, the *Clear ALL annotations* feature will also clear the undo buffer. Because this operation is highly destructive, the **[R]** key shortcut has been removed.
 
 **Navigation tools:**
 
@@ -90,10 +114,9 @@ What concerns different views and mask generation, you have the options describe
 
 **NB! Changing these options will result in you losing any current defect annotations unless you save them beforehand, so if you want to keep the annotations of defects, you need to save them using File→Save current annotations**
 
-* The **View→Load marked image** checkbox allows to pre-annotate the orthoframes if the corresponding shapefiles are available (the markings serve **only as guide** and are not part of the masks produced by the application) or load original orthoframes. **NB!** To use this feature, please choose the folder that contains the shape files with defects in the form `defects_line.*`, `defects_point.*`, and `defects_polygon.*` using the **Defect .shp folder**→**Browse...** dialog in the main UI.
 * The **Edit→Process original mask** checkbox applies preprocessing to the original mask which can speed up the mask correction workflow. Note **you will only see the original/preprocessed mask** if the corrected mask `FILENAME.cut.mask_v2.png` is **not** found in the folder. If you would like to restart the mask correction process, please manually delete the corresponding file taking note of the current image `FILENAME`.
 * The **Edit→Reload AUTO defect mask** menu entry reloads the automatically generated defect mask if it is present in the working directory and the annotation mode is set to defect annotation.
 
-The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! In this example, the in-painted mask for road area extraction is slightly different from the current approach. In case of questions, please consult the team responsible for developing this tool.
+The procedure for in-painting defects and correcting the mask is showcased for a single orthoframe in the following animation. NB! This is not meant to be an instructional video on how to correctly paint in the defects, just an example of using the application.
 
 ![LaunchWindow](.github/img/datmant_usage.gif)
