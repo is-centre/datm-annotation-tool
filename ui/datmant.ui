@@ -432,7 +432,7 @@
      <x>0</x>
      <y>0</y>
      <width>1307</width>
-     <height>36</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -447,6 +447,7 @@
      <string>View</string>
     </property>
     <addaction name="separator"/>
+    <addaction name="actionColor_definitions"/>
     <addaction name="actionLog"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
@@ -517,6 +518,11 @@
   <action name="actionAIMask">
    <property name="text">
     <string>Reload AUTO defect mask</string>
+   </property>
+  </action>
+  <action name="actionColor_definitions">
+   <property name="text">
+    <string>Color specifications</string>
    </property>
   </action>
  </widget>

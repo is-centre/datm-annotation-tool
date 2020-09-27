@@ -12,11 +12,11 @@ from lib.tkmask import generate_tk_defects_layer
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
 # Specific UI features
-from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog
+from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog, QTableWidgetItem
 from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
 from PyQt5.QtCore import Qt, QRectF, QSize
 
-from ui import datmant_ui
+from ui import datmant_ui, color_specs_ui
 import configparser
 import time
 import datetime
@@ -41,6 +41,14 @@ HELPER_COLOR = QColor(0,0,0,99)
 
 # Some paths
 COLOR_DEF_PATH = "defs/color_defs.csv"
+
+
+# Color definitions window
+class DATMantGUIColorSpec(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super(DATMantGUIColorSpec, self).__init__(parent)
+        self.ui = color_specs_ui.Ui_ColorSpecsUI()
+        self.ui.setupUi(self)
 
 
 # Main UI class with all methods
@@ -146,6 +154,9 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         else:
             raise RuntimeError("Failed to load the color conversion schemes. Annotations cannot be saved.")
 
+        # Set up second window
+        self.color_ui = DATMantGUIColorSpec(self)
+
         # Update button states
         self.update_button_states()
 
@@ -172,6 +183,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
+        self.actionColor_definitions.triggered.connect(self.open_color_definition_help)
         self.actionProcess_original_mask.triggered.connect(self.process_mask)
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
@@ -193,6 +205,49 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Try to load an image now that everything is initialized
         self.load_image()
+
+    def open_color_definition_help(self):
+
+        if not self.cspec:
+            self.log("Cannot show color specifications as none are loaded")
+            return
+
+        # Assuming colors specs were updated, set up the table
+        t = self.color_ui.ui.tabColorSpecs
+        t.setRowCount(len(self.cspec))
+        t.setColumnCount(3)
+        t.setColumnWidth(0, 150)
+        t.setColumnWidth(1, 150)
+        t.setColumnWidth(2, 150)
+        t.setHorizontalHeaderLabels(["Colors (TK)", "Colors (DATM)", "Grayscale mask mapping"])
+
+        # Go through the color specifications and set them appropriately
+        row = 0
+        for col in self.cspec:
+            tk = col["COLOR_HEXRGB_TK"]
+            nus = col["COLOR_NAME_EN"]
+            net = col["COLOR_NAME_ET"]
+            dt = col["COLOR_HEXRGB_DATMANT"]
+            gr = col["COLOR_GSCALE_MAPPING"]
+
+            # Text
+            t.setItem(row, 0, QTableWidgetItem(net))
+            t.setItem(row, 1, QTableWidgetItem(nus))
+            t.setItem(row, 2, QTableWidgetItem(str(gr)))
+
+            # Background and foreground
+            t.item(row, 0).setBackground(QColor(tk))
+            t.item(row, 0).setForeground(self.get_best_fg_for_bg(QColor(tk)))
+
+            t.item(row, 1).setBackground(QColor(dt))
+            t.item(row, 1).setForeground(self.get_best_fg_for_bg(QColor(dt)))
+
+            t.item(row, 2).setBackground(QColor(gr, gr, gr))
+            t.item(row, 2).setForeground(self.get_best_fg_for_bg(QColor(gr, gr, gr)))
+
+            row += 1
+
+        self.color_ui.show()
 
     def connect_image_load_on_list_index_change(self, state):
         if state:
@@ -404,7 +459,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Shape of the image
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
-            self.img_shape = (h,w)
+            self.img_shape = (h, w)
 
             # Load the mask and generate the "helper" mask
             try:
@@ -715,7 +770,6 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.load_image()
 
-
     # Locate working directory with files
     def browse_image_directory(self):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose working directory")
@@ -773,6 +827,15 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
                 self.dir_has_images = False
 
             self.log("Found " + str(file_cnt) + " images in the working directory")
+
+    # Get black or white foreground QColor for given background color
+    @staticmethod
+    def get_best_fg_for_bg(color):
+        r, g, b = color.getRgb()[:-1]
+        fg = QColor("#ffffff")  # White by default
+        if (r * 0.299 + g * 0.587 + b * 0.114) > 150:
+            fg = QColor("#000000")  # Need black
+        return fg
 
     def update_button_states(self):  # TODO: Reserved for future use
         return
