@@ -295,11 +295,15 @@ class QtImageAnnotator(QGraphicsView):
         if self._helperHandle is not None:
             self.scene.removeItem(self._helperHandle)
 
+        if self._auxHelper is not None:
+            self.scene.removeItem(self._auxHelper)
+
         if self._overlayHandle is not None:
             self.scene.removeItem(self._overlayHandle)
 
         self._pixmapHandle = None
         self._helperHandle = None
+        self._auxHelper = None
         self._overlayHandle = None
 
         if self.direct_mask_paint:
