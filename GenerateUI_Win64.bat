@@ -1,11 +1,8 @@
 @echo off
 
-REM SET pyuicpath="C:\Users\Alex\.conda\envs\datm-annotation-tool\Library\bin\pyuic5"
-SET pyuicpath="C:\Anaconda\envs\datm-annotation-tool\Library\bin\pyuic5"
+REM Run me in Anaconda Prompt with the corresponding environment enabled!
 
 echo Running pyuic5...
-
-%PYUICPATH% ui\datmant.ui -o ui\datmant_ui.py
-
+call pyuic5 ui\datmant.ui -o ui\datmant_ui.py
+call pyuic5 ui\color_specs.ui -o ui\color_specs_ui.py
 echo Done.
-pause

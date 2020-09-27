@@ -8,25 +8,26 @@ import numpy as np
 import cv2
 from qimage2ndarray import array2qimage
 
-from lib.tkmask import filimage
-
+from lib.tkmask import generate_tk_defects_layer
 from lib.annotmask import get_sqround_mask  # New mask generation facility (original mask needed)
 
 # Specific UI features
-from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog
-from PyQt5.QtGui import QPixmap, QImage, QColor
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtWidgets import QSplashScreen, QMessageBox, QGraphicsScene, QFileDialog, QTableWidgetItem
+from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
+from PyQt5.QtCore import Qt, QRectF, QSize
 
-from ui import datmant_ui
+from ui import datmant_ui, color_specs_ui
 import configparser
 import time
 import datetime
 import subprocess
 
+import pandas as pd
+
 # Overall constants
 PUBLISHER = "AlphaControlLab"
 APP_TITLE = "DATM Annotation Tool"
-APP_VERSION = "0.98.2-beta"
+APP_VERSION = "1.00.0-beta"
 
 # Some configs
 BRUSH_DIAMETER_MIN = 40
@@ -35,8 +36,19 @@ BRUSH_DIAMETER_DEFAULT = 40
 
 # Colors
 MARK_COLOR_MASK = QColor(255,0,0,99)
-MARK_COLOR_DEFECT = QColor(0,0,255,99)
+MARK_COLOR_DEFECT_DEFAULT = QColor(0, 0, 255, 99)
 HELPER_COLOR = QColor(0,0,0,99)
+
+# Some paths
+COLOR_DEF_PATH = "defs/color_defs.csv"
+
+
+# Color definitions window
+class DATMantGUIColorSpec(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super(DATMantGUIColorSpec, self).__init__(parent)
+        self.ui = color_specs_ui.Ui_ColorSpecsUI()
+        self.ui.setupUi(self)
 
 
 # Main UI class with all methods
@@ -44,6 +56,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Applications states in status bar
     APP_STATUS_STATES = {"ready": "Ready.",
                          "loading": "Loading image...",
+                         "exporting_layers": "Exporting layers...",
                          "no_images": "No images or unexpected folder structure."}
 
     # Annotation modes
@@ -79,12 +92,23 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     brush = None
     brush_diameter = BRUSH_DIAMETER_DEFAULT
 
+    # Color definitions
+    cspec = None
+
+    # For TK
+    tk_colors = None
+
     current_paint = None  # Paint of the brush
+
+    # Color conversion dicts
+    d_rgb2gray = None
+    d_gray2rgb = None
 
     # Immutable items
     current_image = None  # Original image
     current_mask = None  # Original mask
     current_helper = None  # Helper mask
+    current_tk = None  # Defects mareked by TK
 
     # User-updatable items
     current_defects = None  # Defects mask
@@ -119,6 +143,20 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # Config file storage: config file stored in user directory
         self.config_path = self.fix_path(os.path.expanduser("~")) + "." + PUBLISHER + os.sep
 
+        # Get color specifications and populate the corresponding combobox
+        self.read_defect_color_defs()
+        self.add_colors_to_list()
+
+        # Assign necessary dicts in the annotator component
+        if self.d_rgb2gray is not None and self.d_gray2rgb is not None:
+            self.annotator.d_rgb2gray = self.d_rgb2gray
+            self.annotator.d_gray2rgb = self.d_gray2rgb
+        else:
+            raise RuntimeError("Failed to load the color conversion schemes. Annotations cannot be saved.")
+
+        # Set up second window
+        self.color_ui = DATMantGUIColorSpec(self)
+
         # Update button states
         self.update_button_states()
 
@@ -145,7 +183,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         # TODO: TEMP: For buttons, use .clicked.connect(self.*), for menu actions .triggered.connect(self.*),
         # TODO: TEMP: for checkboxes use .stateChanged, and for spinners .valueChanged
         self.actionLog.triggered.connect(self.update_show_log)
-        self.actionLoad_marked_image.triggered.connect(self.load_image)
+        self.actionColor_definitions.triggered.connect(self.open_color_definition_help)
         self.actionProcess_original_mask.triggered.connect(self.process_mask)
         self.actionSave_current_annotations.triggered.connect(self.save_masks)
 
@@ -167,6 +205,49 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
         # Try to load an image now that everything is initialized
         self.load_image()
+
+    def open_color_definition_help(self):
+
+        if not self.cspec:
+            self.log("Cannot show color specifications as none are loaded")
+            return
+
+        # Assuming colors specs were updated, set up the table
+        t = self.color_ui.ui.tabColorSpecs
+        t.setRowCount(len(self.cspec))
+        t.setColumnCount(3)
+        t.setColumnWidth(0, 150)
+        t.setColumnWidth(1, 150)
+        t.setColumnWidth(2, 150)
+        t.setHorizontalHeaderLabels(["Colors (TK)", "Colors (DATM)", "Grayscale mask mapping"])
+
+        # Go through the color specifications and set them appropriately
+        row = 0
+        for col in self.cspec:
+            tk = col["COLOR_HEXRGB_TK"]
+            nus = col["COLOR_NAME_EN"]
+            net = col["COLOR_NAME_ET"]
+            dt = col["COLOR_HEXRGB_DATMANT"]
+            gr = col["COLOR_GSCALE_MAPPING"]
+
+            # Text
+            t.setItem(row, 0, QTableWidgetItem(net))
+            t.setItem(row, 1, QTableWidgetItem(nus))
+            t.setItem(row, 2, QTableWidgetItem(str(gr)))
+
+            # Background and foreground
+            t.item(row, 0).setBackground(QColor(tk))
+            t.item(row, 0).setForeground(self.get_best_fg_for_bg(QColor(tk)))
+
+            t.item(row, 1).setBackground(QColor(dt))
+            t.item(row, 1).setForeground(self.get_best_fg_for_bg(QColor(dt)))
+
+            t.item(row, 2).setBackground(QColor(gr, gr, gr))
+            t.item(row, 2).setForeground(self.get_best_fg_for_bg(QColor(gr, gr, gr)))
+
+            row += 1
+
+        self.color_ui.show()
 
     def connect_image_load_on_list_index_change(self, state):
         if state:
@@ -235,7 +316,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         self.annotation_mode += 1
         if self.annotation_mode > 1:
             self.annotation_mode = 0
-        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.current_paint = [MARK_COLOR_DEFECT_DEFAULT, MARK_COLOR_MASK][self.annotation_mode]
+        if self.annotation_mode == self.ANNOTATION_MODE_MARKING_DEFECTS:  # TODO: this should be optimized
+            self.change_brush_color()
+            self.lstDefectsAndColors.setEnabled(True)
+        else:
+            self.lstDefectsAndColors.setEnabled(False)
         self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
@@ -248,7 +334,12 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
     # Set default annotation mode
     def annotation_mode_default(self):
         self.annotation_mode = self.ANNOTATION_MODE_MARKING_DEFECTS
-        self.current_paint = [MARK_COLOR_DEFECT, MARK_COLOR_MASK][self.annotation_mode]
+        self.current_paint = [MARK_COLOR_DEFECT_DEFAULT, MARK_COLOR_MASK][self.annotation_mode]
+        if self.annotation_mode == self.ANNOTATION_MODE_MARKING_DEFECTS:
+            self.change_brush_color()
+            self.lstDefectsAndColors.setEnabled(True)
+        else:
+            self.lstDefectsAndColors.setEnabled(False)
         self.update_annotator()
         self.btnMode.setText(self.ANNOTATION_MODES_BUTTON_TEXT[self.annotation_mode])
         self.btnMode.setStyleSheet("QPushButton {font-weight: bold; color: "
@@ -269,22 +360,23 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.annotator._overlayHandle is not None:
 
             # Depending on the mode, fill the mask appropriately
-            mask = self.annotator.export_ndarray_noalpha()
 
             # Marking defects
             if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
-                the_new_mask = np.zeros(self.img_shape, dtype=np.uint8)
+                self.status_bar_message("exporting_layers")
+                self.log("Exporting color layers...")
+                the_new_mask = self.annotator.export_rgb2gray_mask()  # Easy, as this is implemented in annotator
+                self.status_bar_message("ready")
+
             # Or updating the road edge mask
             else:
+                mask = self.annotator.export_ndarray_noalpha()
                 the_new_mask = 255 * np.ones(self.img_shape, dtype=np.uint8)
 
-            # NB! This approach beats np.where: it is 4.3 times faster!
-            reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
+                # NB! This approach beats np.where: it is 4.3 times faster!
+                reds, greens, blues = mask[:, :, 0], mask[:, :, 1], mask[:, :, 2]
 
-            if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
-                m2 = list(MARK_COLOR_DEFECT.getRgb())[:-1]
-                the_new_mask[(reds == m2[0]) & (greens == m2[1]) & (blues == m2[2])] = 255
-            else:
+                # Set the mask according to the painted road mask
                 m1 = list(MARK_COLOR_MASK.getRgb())[:-1]
                 the_new_mask[(reds == m1[0]) & (greens == m1[1]) & (blues == m1[2])] = 0
 
@@ -299,15 +391,15 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
         if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
-            helper = 255*np.zeros((h,w,4), dtype=np.uint8)
+            helper = np.zeros((h,w,4), dtype=np.uint8)
             helper[self.current_helper == 0] = list(HELPER_COLOR.getRgb())
 
-            defects = np.zeros((h, w, 4), dtype=np.uint8)
-            defects[self.current_defects == 255] = list(MARK_COLOR_DEFECT.getRgb())
-
             self.annotator.clearAndSetImageAndMask(self.current_image,
-                                                   array2qimage(defects),
-                                                   array2qimage(helper))
+                                                   self.current_defects,
+                                                   array2qimage(helper),
+                                                   aux_helper=(array2qimage(self.current_tk) if self.current_tk is not None else None),
+                                                   process_gray2rgb=True,
+                                                   direct_mask_paint=True)
         else:
 
             # Remember, the mask must be inverted here, but saved properly
@@ -316,7 +408,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             mask[self.current_updated_mask == 0] = list(MARK_COLOR_MASK.getRgb())
 
             self.annotator.clearAndSetImageAndMask(self.current_image,
-                                                   array2qimage(mask))
+                                                   mask)
 
     def process_mask(self):
 
@@ -350,23 +442,24 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
             # Start loading the image
             self.log("Loading image " + img_name_no_ext)
 
-            # Load the image; if we must add some previous annotation to the image, try to do it here
-            if self.actionLoad_marked_image.isChecked():
-                try:
-                    self.log("Drawing defect marks on original image...")
-                    img2 = filimage(self.txtImageDir.text(), self.txtShpDir.text(), img_name_no_ext)
-                    self.current_image = QImage(array2qimage(img2))
-                except:
-                    self.actionLoad_marked_image.setChecked(False)
-                    self.log("Could not find or load the shapefile data. Will load the original image instead.")
-                    self.current_image = QImage(img_path + ".jpg")
-            else:
+            # Load the image
+            try:
+                self.log("Drawing defect marks on original image...")
                 self.current_image = QImage(img_path + ".jpg")
+                img_tk = generate_tk_defects_layer(self.txtImageDir.text(), self.txtShpDir.text(),
+                                                    img_name_no_ext, self.tk_colors)
+                self.current_tk = img_tk
+            except Exception as e:
+                self.actionLoad_marked_image.setChecked(False)
+                self.log("Could not find or load the shapefile data. Will load only the image.")
+                self.current_image = QImage(img_path + ".jpg")
+                self.curent_tk = None
+
 
             # Shape of the image
             h, w = self.current_image.rect().height(), self.current_image.rect().width()
 
-            self.img_shape = (h,w)
+            self.img_shape = (h, w)
 
             # Load the mask and generate the "helper" mask
             try:
@@ -675,6 +768,7 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.log('Changed defect shapefile directory to ' + dir)
 
+            self.load_image()
 
     # Locate working directory with files
     def browse_image_directory(self):
@@ -734,8 +828,114 @@ class DATMantGUI(QtWidgets.QMainWindow, datmant_ui.Ui_DATMantMainWindow):
 
             self.log("Found " + str(file_cnt) + " images in the working directory")
 
+    # Get black or white foreground QColor for given background color
+    @staticmethod
+    def get_best_fg_for_bg(color):
+        r, g, b = color.getRgb()[:-1]
+        fg = QColor("#ffffff")  # White by default
+        if (r * 0.299 + g * 0.587 + b * 0.114) > 150:
+            fg = QColor("#000000")  # Need black
+        return fg
+
     def update_button_states(self):  # TODO: Reserved for future use
         return
+
+    def read_defect_color_defs(self):  # Read the defect color definitions from the corresponding file
+        # Read the file
+        cspec = pd.read_csv(COLOR_DEF_PATH,
+                            delimiter=";", encoding='utf-8')
+        cspec_list = cspec.to_dict('records')
+
+        # Store the list
+        self.cspec = cspec_list
+
+    def add_colors_to_list(self):
+        if self.cspec is not None:
+
+            # Remove index change, if it is defined
+            try:
+                self.lstDefectsAndColors.disconnect()
+            except:
+                pass  # Do nothing, just a precaution
+
+            # Create the necessary dicts
+            g2rgb = {}
+            rgb2g = {}
+            tk2rgb = {}
+
+            for col in self.cspec:
+                rgb_val = col["COLOR_HEXRGB_DATMANT"].lower()
+                g_val = int(col["COLOR_GSCALE_MAPPING"])
+
+                keys_to_insert = col["COLOR_ABBR_ET"].split(",")
+                for ks in keys_to_insert:
+                    tk2rgb[ks.strip()] = col["COLOR_HEXRGB_TK"]
+
+                # Create the icon and populate the list
+                pix = QPixmap(50, 50)
+                pix.fill(QColor(rgb_val))
+                ticon = QIcon(pix)
+                self.lstDefectsAndColors.addItem(ticon, " " + col["COLOR_NAME_EN"] +
+                                                 " | " + col["COLOR_NAME_ET"])
+
+                # Fill in necessary dicts
+                g2rgb[g_val] = rgb_val
+                rgb2g[rgb_val] = g_val
+
+            # Set up dicts
+            self.d_rgb2gray = rgb2g
+            self.d_gray2rgb = g2rgb
+            self.tk_colors = tk2rgb
+
+            # Change the brush color
+            self.lstDefectsAndColors.currentIndexChanged.connect(self.change_brush_color)
+
+        else:
+            self.log("Cannot add colors to the list, specification missing")
+
+    def change_brush_color(self):
+        cind = self.lstDefectsAndColors.currentIndex()
+        color = self.cspec[cind]
+        the_color = QColor("#63" + color["COLOR_HEXRGB_DATMANT"].split("#")[1])
+        self.current_paint = the_color
+        self.annotator.brush_fill_color = the_color
+
+    '''
+    **********
+    KEY EVENTS
+    **********
+    '''
+    def keyPressEvent(self, event):
+        # Some additional shortcuts for quickly selecting defect types
+        if self.annotation_mode is self.ANNOTATION_MODE_MARKING_DEFECTS:
+            max_index = self.lstDefectsAndColors.count()-1
+            if event.key() == Qt.Key_1:
+                if max_index >= 0:
+                    self.lstDefectsAndColors.setCurrentIndex(0)
+            if event.key() == Qt.Key_2:
+                if max_index >= 1:
+                    self.lstDefectsAndColors.setCurrentIndex(1)
+            if event.key() == Qt.Key_3:
+                if max_index >= 2:
+                    self.lstDefectsAndColors.setCurrentIndex(2)
+            if event.key() == Qt.Key_4:
+                if max_index >= 3:
+                    self.lstDefectsAndColors.setCurrentIndex(3)
+            if event.key() == Qt.Key_5:
+                if max_index >= 4:
+                    self.lstDefectsAndColors.setCurrentIndex(4)
+            if event.key() == Qt.Key_6:
+                if max_index >= 5:
+                    self.lstDefectsAndColors.setCurrentIndex(5)
+            if event.key() == Qt.Key_7:
+                if max_index >= 6:
+                    self.lstDefectsAndColors.setCurrentIndex(6)
+            if event.key() == Qt.Key_8:
+                if max_index >= 7:
+                    self.lstDefectsAndColors.setCurrentIndex(7)
+            if event.key() == Qt.Key_9:
+                if max_index >= 8:
+                    self.lstDefectsAndColors.setCurrentIndex(8)
 
 
 def main():
